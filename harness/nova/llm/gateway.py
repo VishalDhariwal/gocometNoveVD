@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import threading
 from dataclasses import dataclass
 from typing import Any, Protocol, Sequence
 
@@ -101,17 +102,25 @@ class Gateway:
         self.api_calls = 0
         self.input_tokens = 0
         self.output_tokens = 0
+        self._lock = threading.Lock()  # readers call the gateway from several threads at once
 
     @property
     def client(self) -> Any:
-        if self._client is None:
-            if not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
-                raise LLMUnavailable("ANTHROPIC_API_KEY is not set in the environment")
-            try:
-                self._client = anthropic.Anthropic(timeout=self._timeout, max_retries=self._max_retries)
-            except Exception as e:  # noqa: BLE001 - any construction failure means no access
-                raise LLMUnavailable(f"can't create the Anthropic client ({type(e).__name__}): {e}") from e
-        return self._client
+        with self._lock:
+            if self._client is None:
+                if not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
+                    raise LLMUnavailable("ANTHROPIC_API_KEY is not set in the environment")
+                try:
+                    self._client = anthropic.Anthropic(timeout=self._timeout, max_retries=self._max_retries)
+                except Exception as e:  # noqa: BLE001 - any construction failure means no access
+                    raise LLMUnavailable(f"can't create the Anthropic client ({type(e).__name__}): {e}") from e
+            return self._client
+
+    def _count(self, n_in: int, n_out: int) -> None:
+        with self._lock:
+            self.api_calls += 1
+            self.input_tokens += n_in
+            self.output_tokens += n_out
 
     def call_tool(self, *, purpose: str, version: str, models: Sequence[str], system: str, content: list[dict],
                   tool: dict, max_tokens: int = 4096) -> ToolResult:
@@ -159,12 +168,10 @@ class Gateway:
                 if _model_refused(e):
                     raise _ModelRefused(str(e)) from e
                 raise LLMFailed(f"{model}: {type(e).__name__}: {e}") from e
-            self.api_calls += 1
             usage = getattr(resp, "usage", None)
             n_in, n_out = getattr(usage, "input_tokens", 0) or 0, getattr(usage, "output_tokens", 0) or 0
             used_in, used_out = used_in + n_in, used_out + n_out
-            self.input_tokens += n_in
-            self.output_tokens += n_out
+            self._count(n_in, n_out)
 
             if resp.stop_reason == "max_tokens":
                 problem = f"the answer was cut off at max_tokens={budget}"

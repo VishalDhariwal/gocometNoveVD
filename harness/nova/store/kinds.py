@@ -50,8 +50,9 @@ _ALL = (
          "copy / reminder markers"),
     Kind("invoice_line", ("invoice_id",),
          "one billed line: AWB, label, lane, quantity and unit, rate, amount, printed pickup date, period"),
-    Kind("credit_note", ("contract_id",),
-         "a credit note: number, date, credit type, period, amount, currency, invoices referenced"),
+    Kind("credit_note", (),
+         "a credit note: number, date, credit type, period, amount, currency, invoices referenced; contract_id and "
+         "invoice_id keys are filled when the note names them"),
     # ---- shipments ----
     Kind("shipment", ("awb",),
          "an air waybill: master or house, pieces, actual and chargeable weight, dimensions, origin, destination, "

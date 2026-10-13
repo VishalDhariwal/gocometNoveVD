@@ -19,6 +19,19 @@ def _list(var: str, default: tuple[str, ...]) -> tuple[str, ...]:
 # strongest model first. The rest of the chain is the fallback for when a model isn't available on the key in use.
 VISION_MODELS = _list("NOVA_VISION_MODELS", ("claude-opus-5-5", "claude-sonnet-5-5"))
 
+# Readers (phase 2). Classification is a small, cheap call per PDF; bills, records and emails go to a mid-size model;
+# contracts are few and everything rests on them, so they get the strongest model first.
+CLASSIFY_MODELS = _list("NOVA_CLASSIFY_MODELS", ("claude-haiku-5-5", "claude-sonnet-5-5"))
+READER_MODELS = _list("NOVA_READER_MODELS", ("claude-sonnet-5-5", "claude-opus-5-5"))
+CONTRACT_MODELS = _list("NOVA_CONTRACT_MODELS", ("claude-opus-5-5", "claude-sonnet-5-5"))
+
+# Reads run in parallel. The grader's practice limit is 600 s per step: stop starting new reads after the budget and
+# let the next ingest pick up whatever is left.
+READER_WORKERS = int(os.environ.get("NOVA_READER_WORKERS", "8"))
+INGEST_BUDGET_S = float(os.environ.get("NOVA_INGEST_BUDGET", "420"))
+# A document whose reads keep failing is left alone after this many tries (it stays visible in the run log).
+MAX_READ_ATTEMPTS = 3
+
 # Long edge, in pixels, of a scanned page rendered for Claude. The API scales larger images down anyway.
 VISION_MAX_EDGE = int(os.environ.get("NOVA_VISION_MAX_EDGE", "1568"))
 

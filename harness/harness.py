@@ -1,40 +1,43 @@
-"""Your harness. The grader calls exactly these three commands, in a fresh process each time:
+"""The grader's entry point. It calls exactly these three commands, each in a fresh process:
 
     python harness.py ingest <batch_dir> --state-dir <dir>
     python harness.py report --as-of YYYY-MM-DD [--mode supervised|autonomous] [--state-dir <dir>] > report.json
     python harness.py feedback <feedback.json> --state-dir <dir>
 
-- ingest: read every .eml in <batch_dir> (attachments inside) and store what you learn under --state-dir. The process
-  is restarted between batches, so everything you need later must be on disk.
-- report: print one report.json (grader/schema/report.schema.json) to stdout. Only documents received on or before
+- ingest: read every .eml in <batch_dir> (attachments inside) into the store under --state-dir.
+- report: print one report.json (grader/schema/report.schema.json) on stdout. Only documents received on or before
   --as-of count. --mode defaults to supervised.
-- feedback: take in a person's decisions on what you escalated (feedback.json) and let them change later reports.
+- feedback: take in a person's decisions (feedback.json) so later reports use them.
 
-The environment gives ANTHROPIC_API_KEY and ANTHROPIC_BASE_URL. Keep the argument names as they are: grader/validate.py
-checks them. Replace the NotImplementedError bodies with your code.
+The argument names stay exactly as the grader passes them (grader/validate.py checks). The work lives in the `nova`
+package next to this file; see docs/ARCHITECTURE.md. Heavy imports happen inside the commands, so `--help` is instant.
 """
 from __future__ import annotations
 
 import argparse
+import json
 import sys
+from pathlib import Path
 
 DEFAULT_STATE = ".state"
 
+# The grader runs us from an empty working folder, so make `import nova` work from anywhere.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-def ingest(batch_dir: str, state_dir: str) -> None:
-    raise NotImplementedError(
-        f"ingest is not written yet: read the .eml files in {batch_dir} and keep what you learn under {state_dir}")
+
+def ingest(batch_dir: str, state_dir: str) -> int:
+    from nova import cli
+    return cli.ingest(batch_dir, state_dir)
 
 
 def report(as_of: str, mode: str, state_dir: str) -> dict:
-    raise NotImplementedError(
-        f"report is not written yet: return the report.json dict for --as-of {as_of} in {mode} mode "
-        "(see grader/schema/report.schema.json and data/examples/*/expected_finding.json)")
+    from nova import cli
+    return cli.report(as_of, mode, state_dir)
 
 
-def feedback(feedback_file: str, state_dir: str) -> None:
-    raise NotImplementedError(
-        f"feedback is not written yet: store the decisions in {feedback_file} under {state_dir} so later reports use them")
+def feedback(feedback_file: str, state_dir: str) -> int:
+    from nova import cli
+    return cli.feedback(feedback_file, state_dir)
 
 
 def main(argv=None) -> int:
@@ -51,19 +54,13 @@ def main(argv=None) -> int:
     p.add_argument("feedback_file")
     p.add_argument("--state-dir", default=DEFAULT_STATE)
     a = ap.parse_args(argv)
-    try:
-        if a.cmd == "ingest":
-            ingest(a.batch_dir, a.state_dir)
-        elif a.cmd == "report":
-            import json
-            json.dump(report(a.as_of, a.mode, a.state_dir), sys.stdout, indent=1)
-            sys.stdout.write("\n")
-        else:
-            feedback(a.feedback_file, a.state_dir)
-    except NotImplementedError as e:
-        print(f"harness.py {a.cmd}: {e}", file=sys.stderr)
-        return 3
-    return 0
+    if a.cmd == "ingest":
+        return ingest(a.batch_dir, a.state_dir)
+    if a.cmd == "report":
+        json.dump(report(a.as_of, a.mode, a.state_dir), sys.stdout, indent=1)
+        sys.stdout.write("\n")
+        return 0
+    return feedback(a.feedback_file, a.state_dir)
 
 
 if __name__ == "__main__":
