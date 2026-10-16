@@ -6,7 +6,7 @@ Status: plan, written before any code. It's the long version; `DESIGN.md` (800 w
 
 - **LLMs read, code decides.** Claude only turns messy documents into typed facts, and every number it returns is checked against the source text before anything trusts it. All money math, date windows, authority checks and actions are plain deterministic Python. Where a rule turns on wording (which instrument prevails, free storage days, GST scope, who caused a customs hold, what a tracking event or ledger status means, a waiver's condition), Claude answers it at ingest as a fixed choice with its quote. Code never interprets wording, and an unanswered question means we abstain.
 - **Ingest remembers, report reasons.** `ingest` extracts and stores facts. `report` rebuilds every answer from scratch out of the fact store for the given `as_of`. That one split gets us order independence, backdated amendments, stale-key removal and reproducible audits for free. The report's only API calls are the case reviewer's (next point), cached per case.
-- **A second reader for the hard cases.** Where an answer needs judgement across several documents (a waiver whose condition is in words, a waiver the reader couldn't pin to a shipment, a waiver seen only quoted, labels nobody mapped, an email no reader understood, or an autonomous dispute about to go out), a separate Claude agent reads the original documents with read-only tools and gives an opinion with quotes. Code checks every quote and every source's authority, works out the money itself, and never executes what rests on the reviewer. Open in what it reads, closed in what it can do (M19).
+- **A second agent for what code can't settle.** Only the cases code is stuck on (a waiver condition in words, an unpinned or quoted waiver, unmapped or unpriceable lines, an unread document naming our invoice, a typo'd reference, an execute on an unverified read) go to a second Claude agent. It decides them with tools that expose our pricing engine and exact arithmetic, so every amount is still code's, and sends a case to a person only by explicit criteria. Five cheap seat belts remain (quotes on the page, no planted text, money from a calculation, one claim per line, a code finding never dropped) (M19).
 - **Authority before content.** A fact only counts if its source is allowed to say it (signatures, Schedule 1, records). Text in an email never gives the system orders, and recipients only ever come from Schedule 1.
 - **Abstaining is a feature.** `conflict`, `cannot_determine` and `human_review` are normal outputs with their own rules, not error paths.
 - **Nothing tuned to the practice files.** No names, lanes, layouts or per-carrier regexes. Contracts are parsed into data, and the engine applies whatever the contract says.
@@ -56,7 +56,7 @@ INGEST  (where the readers call Claude)
 REPORT  (deterministic; the only API calls are the case reviewer's, cached)
  [M7 View(as_of)] -> [M8 Authority + terms engine] -> [M9 Pricing] -> [M10 Detectors x6]
         -> [M11 Adjudicator: verdicts, claim ledger, feedback] -> [M12 Policy & action gate]
-        -> [M19 Case reviewer: triage (code) -> agent (Claude, read-only tools) -> checks (code)] -> [M12 again]
+        -> [M19 Case reviewer: triage (code) -> agent (Claude decides, with tools) -> seat belts (code)] -> [M12 again]
         -> [M13 Confidence] -> [M15 Report writer: ids, supersedes, retro, evidence check, schema] -> stdout
         -> [M16 Clerk: drafts / outbox, idempotent]
 ```
@@ -231,15 +231,61 @@ Templated drafts with no LLM involved, so there's no injection surface: a disput
 
 `harness.py explain <key> --as-of D --state-dir S` prints the decision trace: facts used (with doc, page and quote), which terms were resolved and why, the arithmetic line by line, the checks passed and failed, and the feedback applied. In the live call, this is how we work out a hidden miss in minutes instead of reading code.
 
-### M19 Case reviewer (`nova/review/`)
+### M19 Case reviewer and human routing (`nova/review/`)
 
-A separate Claude agent, run inside `report`, for the cases rules can't settle. Code picks the work, Claude reads, code decides what its reading is worth.
+A second Claude agent, run inside `report`, that **decides** the cases code can't settle. It is called only for those: reviewing every case would double the time and the tokens for nothing.
 
-- **Triage (code).** Upgrade cases, where code stayed silent: a waiver from an authorised person whose condition is in words (`waiver_condition`); one the reader couldn't pin to a waybill, invoice or month (`waiver_scope`); a waiver seen only quoted (`quoted_waiver`); billed lines whose label nobody mapped to Annex E, so no detector saw them (`unmapped_labels`); an email no reader understood that names one of our invoices or waybills (`unread_email`). Then, in autonomous mode only, a second look at every finding about to be executed (`second_look`). Money first, at most 20 cases, a 300 s budget inside the 600 s step.
-- **Agent (Claude).** One conversation per case, in parallel. The first message is the case file: the question, what code concluded and its working, the billed lines with fact ids, the facts around the invoice, Schedule 1, and the full text of the documents at the centre. Tools: `read_document`, `search_documents`, `find_facts`, `payment_register`, `price_invoice`, all read-only over what was received by `as_of`. It ends with `submit_opinion`: agree / disagree / unsure, a verdict, the billed lines, the repeated-line pairs for a duplicate, the waiver email, whether its condition was met, short reasons, and quotes. Never an amount, an action or a recipient.
-- **Checks (code).** Every quote must be on the page it names (the grader's own test) and gets its document's authority level. Anything citing text aimed at automated readers is thrown out whole; quoted text and outsiders back nothing. Only two upgrades exist. A **waived_but_billed** finding needs a held waiver email from the Schedule 1 waivers contact (or a feedback grant), a checked quote in their own words, a condition that is none or met with a checked level 1-3 record, an email that names each line's waybill, invoice or month (compared letter by letter), and lines nothing else has claimed. A **duplicate** needs each repeated line paired with an earlier one: another invoice number, the same waybill, the same amount, the earlier invoice dated no later, and no credit note touching either. Code adds up the lines and converts the currency. A **second look** holds an execute for a person only if the reviewer disagrees with a checked quote at level 3 or better. Anything else changes nothing.
-- **Gate.** What rests on the reviewer is never executed: `draft:*` in supervised, `human_review` in autonomous (a sixth check in M12), with lower confidence. The explanation says the reviewer found it, in its own words with addresses, links and phone numbers stripped.
-- **Failure.** No key, out of time, a bad answer: the case keeps code's verdict. Every case is written to the `reviews` table (schema v2) with what code did and why. The conversation is cached turn by turn in `llm_cache`, so the same evidence replays the same answer and item ids don't churn.
+- **When it's called (triage, code).** Only when code is stuck or about to act on something it couldn't verify:
+  - a waiver whose condition is in words;
+  - a waiver with no scope code could read;
+  - a waiver seen only quoted;
+  - labels nobody mapped to Annex E;
+  - lines code couldn't price;
+  - an email no reader understood, or a document nothing could be read out of, that names our invoices or waybills;
+  - a waiver, credit, extension or payment request whose reference is a typo away from ours;
+  - in autonomous mode, a finding about to be executed on an unverified or scanned read.
+
+  It's never called for a clean finding, a clean no-finding, a conflict (the glossary sends those to a person) or a supervised draft. Risky executes go first, then the rest by money. At most 30 cases, with a 300 s budget inside the 600 s step.
+- **Context, in three layers.**
+  1. A fixed system prompt, marked for Anthropic prompt caching: the glossary's rules, who can say what, when to bring in a person, the safety rules, and how to use the tools.
+  2. A case brief built by code from the store: why the case came, code's conclusion and working, code's other conclusions on the invoice, the billed lines with code's pricing status, the contract's rates for those lanes, Schedule 1, decisions a person already made, an index of every related document (those naming the invoice or its waybills, the invoice's email, the same email thread), and the full text of the documents at the centre.
+  3. Tools to pull the rest.
+- **Tools (`tools.py`, MCP-style schemas, in-process).**
+  - Context: `read_document`, `search_documents`, `documents_for`, `find_facts`, `contract_terms`, `payment_register`, `tracking`.
+  - Engine: `price_invoice` (code's own pricing); `reprice_shipment`, which reprices with a corrected pickup date, weight or rate, each backed by a quote that must be on its page (bands, minimums, fuel on the correct freight and rounding stay code's); `late_fee`.
+  - Arithmetic: `calc`, exact Decimal, half-up.
+  - Assembly: `finding_amount`, which takes billed minus correct per line, adds it up in the invoice's currency and converts once at Annex F.
+
+  Every number goes in a per-case ledger with an id and its working. The decision names the id; it never writes a number.
+- **The decision.** `submit_decision`: report or send to a person; verdict; class; the calculation id; the missing document and its holder; quotes; an explanation; and, for a person, one of six reasons:
+  - conflicting documents;
+  - missing information;
+  - an unreadable document that matters;
+  - a payment or recipient change;
+  - a contradiction of a person's decision;
+  - outside the rules.
+
+  Otherwise it decides on its own.
+- **Seat belts (code, no tokens).** Code doesn't re-check the agent's reasoning. It only guards what costs points or a hard gate:
+  1. quotes must be on their page;
+  2. nothing may rest on planted text (the whole decision is refused);
+  3. the amount is the named calculation;
+  4. a line is claimed once;
+  5. a code finding is never dropped (it goes to a person instead).
+
+  Recipients and "never execute in supervised mode" stay with the action gate, as for every item. A decision that fails a seat belt it could fix is said back to the agent within the conversation.
+- **Failure.** If there's no API key or the time runs out, the case keeps code's verdict. Every case goes to the `reviews` table (schema v2) with the decision and what code did with it. Conversations are cached turn by turn, so the same evidence replays the same decision.
+
+**When a person is brought in (`route.py`, on every report).** Only these rules:
+
+| Rule | When | Report | Queue |
+|---|---|---|---|
+| G1 threshold | $5,000 or more outbound on one invoice or cashback key | human_review (both modes) | high |
+| G2 conflict | authorised sources disagree, unranked by the contract | escalate | high |
+| G3 unattended test | autonomous: one of the five checks fails | human_review | normal |
+| A1 reviewer asks | the agent sends the case to a person, by its prompt's criteria | human_review in autonomous; supervised stays a draft | normal |
+
+The grader counts `escalate` and `human_review` together, and over 60% caps the score. So in a report of 10 or more items, A1 holds that would take the share over 50% are released (smallest first) and noted in the queue. The queue is the `human_queue` table (schema v3) plus a readable page at `<state>/human_queue/<mode>/<as_of>.md`. Items in it carry a `human` field (rule, reason, priority) and end their explanation with why.
 
 ## 5. How each class is decided
 
@@ -297,7 +343,7 @@ Matching: a standing fact applies only when **every** `applies_to` filter matche
 - Recipients only ever come from Schedule 1. No address taken from an email body is written to the report or the outbox.
 - No irreversible actions exist, so an email asking to accept, renew, pay or settle can't be obeyed even by mistake.
 - The API key is read from env only and never logged or stored; `make validate` checks the repo.
-- The case reviewer (M19) does read whole documents, planted text included, so it gets no power to act: it answers in a fixed shape with quotes, code drops any answer that cites a recorded injection attempt, quoted text and outsiders back nothing, the money and the recipient come from code, and nothing it backs is executed.
+- The case reviewer (M19) reads whole documents, planted text included, so it chooses no actions and no recipients: code refuses any decision that cites a recorded injection attempt, quoted text and outsiders back nothing, the money comes from code's calculations, the recipient from Schedule 1, and a finding code made is never dropped on its word.
 
 ## 10. Confidence
 
@@ -316,7 +362,7 @@ They're combined with a logistic function. Weights start hand-set, then get cali
 
 - Most work is deterministic: tables, ledgers, tracking and all the reasoning. LLM calls: one classification per document, one extraction per invoice or email, about 6–10 section calls per contract, two readers per scanned page.
 - Calls run in a bounded parallel pool, and the cache makes re-runs free.
-- The case reviewer adds up to 20 short conversations per report (typically 2-4 turns each, about 10-25k input tokens per case), only for cases code finds hard, and nothing on a re-run with the same evidence.
+- The case reviewer runs only on the cases code can't settle (expected 5-10% of keys, at most 30 per report), typically 2-6 turns each at about 10-25k input tokens per case. The fixed system prompt and tool definitions are prompt-cached, and a re-run with the same evidence costs nothing.
 - Practice `batch_01` (about 90 documents) should finish well inside the 600 s step limit at around 8 concurrent calls. Contracts are the long pole, which is why they're split by section.
 - Cost per 1,000 documents: measured from the token log on the practice and exam runs, priced at the published rates for the models used, and written into `DESIGN.md`. Not guessed up front.
 
@@ -402,13 +448,14 @@ harness/
     intake/     mail.py  mailbox.py  pdf.py (vendored grader reader + vision for scans)  sheets.py
     llm/        gateway.py (models, retries, cache, schema repair; step() for tool-using conversations)
     readers/    classify.py  contract.py  billing.py  records.py  tables.py  correspondence.py  values.py  verify.py  run.py  check.py
-    store/      db.py  kinds.py  schema_v1.sql  schema_v2.sql (the reviewer's audit trail)
+    store/      db.py  kinds.py  schema_v1.sql  schema_v2.sql (the reviewer's audit trail)  schema_v3.sql (human queue)
     knowledge/  view.py  authority.py  feedback.py  terms.py  pricing.py  reconcile.py  price.py (trace one invoice)
     decide/     overcharge.py  duplicate.py  waiver.py  late_fees.py  cashback.py  expiry.py  common.py (verdicts, claim ledger)
                 adjudicate.py  audit.py (print every verdict)  policy.py (action gate)  confidence.py
     (feedback)  knowledge/feedback.py (scope matching)  decide/learn.py (close / reject / override per key)
-    review/     triage.py  library.py (what it may read, read-only tools, quote and authority checks)  agent.py
-                check.py (what an opinion is worth)  run.py
+    review/     triage.py (which cases)  library.py (what it may read; quote and authority checks)  tools.py (the
+                agent's tools and calculation ledger)  agent.py (prompt, brief, loop)  check.py (seat belts)
+                route.py (when a person is brought in; the queue)  run.py
     report/     build.py (ids, supersedes, retro, schema)  evidence.py (quote check)  explain.py
     clerk/      drafts.py (templates, outbox, idempotent)
   tests/

@@ -87,15 +87,15 @@ def review_lines(v: Verdict) -> list[str]:
     copied from a planted email."""
     r = v.checks.get("review") or {}
     said = "; ".join(r.get("reasons") or [])
-    if r.get("upgraded"):
-        return ["Found on a second reading of the documents by the case reviewer, then checked by code (the quotes, "
-                "the sender's authority, the lines and the amount). A person approves it before anything is sent."
-                + (f" The reviewer's reasons: {said}" if said else "")]
-    if r.get("held"):
-        return [f"Held for a person: the case reviewer disagrees, with a quote code checked. Its reasons: {said}"]
+    out = []
     if r.get("agreed"):
-        return ["A second reading of the documents by the case reviewer agrees."]
-    return []
+        out.append("The case reviewer read the documents and agrees." + (f" {said}" if said else ""))
+    elif r.get("by_reviewer"):
+        out.append("Decided by the case reviewer after reading the documents; the amounts come from code's "
+                   "calculation tools." + (f" Its reasoning: {said}" if said else ""))
+    if r.get("person"):
+        out.append(f"The case reviewer sent it to a person: {str(r['person']).replace('_', ' ')}.")
+    return out
 
 
 def explanation(v: Verdict) -> list[str]:

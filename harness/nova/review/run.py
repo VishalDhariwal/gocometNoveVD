@@ -20,28 +20,32 @@ from .library import Library
 log = logging.getLogger(__name__)
 
 
+Reviewed = list[tuple[triage.Case, check.Outcome]]
+
+
 def review(store: Store, gateway: Gateway | None, terms: Terms, verdicts: list[Verdict], *, mode: str, gates: dict,
-           report_id: int | None = None, enabled: bool | None = None) -> list[Verdict]:
-    """-> the verdicts, with what the reviewer added or held. Never raises: any failure leaves code's verdicts."""
+           report_id: int | None = None, enabled: bool | None = None) -> tuple[list[Verdict], Reviewed]:
+    """-> (the verdicts with what the reviewer added or held, each case with what code made of it). Never raises: any
+    failure leaves code's verdicts."""
     if gateway is None or not (config.review_enabled() if enabled is None else enabled):
-        return verdicts
+        return verdicts, []
     try:
         return _review(store, gateway, terms, verdicts, mode, gates, report_id)
     except Exception:  # noqa: BLE001 - the reviewer is a second look; the report must not depend on it
         log.exception("the case reviewer failed; keeping code's verdicts")
-        return verdicts
+        return verdicts, []
 
 
-def _review(store, gateway, terms, verdicts, mode, gates, report_id) -> list[Verdict]:
+def _review(store, gateway, terms, verdicts, mode, gates, report_id) -> tuple[list[Verdict], Reviewed]:
     lib = Library(store, terms)
     cases = triage.pick(lib, verdicts, gates, mode, config.REVIEW_MAX_CASES)
     if not cases:
-        return verdicts
+        return verdicts, []
     try:
         gateway.client   # no key: say so once instead of once per case
     except LLMUnavailable as e:
         log.warning("case reviewer skipped (%d case(s)): %s", len(cases), e)
-        return verdicts
+        return verdicts, [(c, check.Outcome("failed", f"no API access: {e}")) for c in cases]
     claimed = {line: v.cls for v in verdicts if v.verdict == "finding" for line in v.lines}
     deadline = time.monotonic() + config.REVIEW_BUDGET_S
     with ThreadPoolExecutor(max_workers=max(1, config.REVIEW_WORKERS)) as pool:
@@ -59,12 +63,13 @@ def _review(store, gateway, terms, verdicts, mode, gates, report_id) -> list[Ver
     by_key = {v.finding_key: v for v in verdicts}
     order = [v.finding_key for v in verdicts]
     counts: dict[str, int] = {}
+    done: Reviewed = []
     for case, res in zip(cases, results):
-        if res.opinion is None:
-            outcome = check.Outcome("failed", res.error or "no opinion")
+        if res.decision is None:
+            outcome = check.Outcome("failed", res.error or "no decision")
         else:
-            outcome = check.judge(lib, case, res.opinion, by_key, claimed)
-        if outcome.kind == "upgraded" and outcome.verdict is not None:
+            outcome = check.judge(lib, case, res.decision, res.session, by_key, claimed)
+        if outcome.kind == "reported" and outcome.verdict is not None:
             v = outcome.verdict
             if v.finding_key not in by_key:
                 order.append(v.finding_key)
@@ -72,9 +77,10 @@ def _review(store, gateway, terms, verdicts, mode, gates, report_id) -> list[Ver
             for line in v.lines:
                 claimed.setdefault(line, v.cls)
         counts[outcome.kind] = counts.get(outcome.kind, 0) + 1
+        done.append((case, outcome))
         log.info("review %s (%s): %s - %s", case.key, case.reason, outcome.kind, outcome.detail)
         if report_id is not None:
-            store.add_review(report_id, finding_key=case.key, reason=case.reason, opinion=res.opinion,
+            store.add_review(report_id, finding_key=case.key, reason=case.reason, opinion=res.decision,
                              outcome=outcome.kind, detail=outcome.detail, model=res.model, turns=res.turns)
     log.info("case reviewer: %d case(s), %s", len(cases), ", ".join(f"{n} {k}" for k, n in sorted(counts.items())))
-    return [by_key[k] for k in order]
+    return [by_key[k] for k in order], done

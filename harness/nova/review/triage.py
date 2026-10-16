@@ -1,9 +1,22 @@
-"""Which cases go to the reviewer. Plain code: the reviewer never picks its own work.
+"""Which cases go to the reviewer: only the ones code can't settle. The reviewer never picks its own work.
 
-Upgrade cases (code stayed silent, and the reviewer may turn one into a finding, under check.py's tests) come first,
-largest billed amount first; then, in autonomous mode only, second looks at what is about to be executed. At most
-config.REVIEW_MAX_CASES in all. One case per invoice and reason; an invoice that already has a finding of the class a
-case is about isn't sent for that class.
+A case goes out when code is stuck or about to act on something it couldn't verify. Never for a clean finding, a clean
+no-finding, a conflict (the glossary sends those to a person), or a supervised draft (a person reads it anyway).
+
+  risky_execute        autonomous: a finding about to be executed rests on a read code couldn't verify
+                       (a quote not found on its page, or a scanned page read by vision)
+  waiver_condition     a waiver from an authorised person whose condition is in words code can't check
+  waiver_scope         ... where the reader found no waybill, invoice or month
+  quoted_waiver        a waiver seen only quoted: is the original held?
+  unmapped_labels      billed lines whose label isn't in Annex E and wasn't mapped: no check looked at them
+  unpriced_lines       billed lines code couldn't price (no delivery record, no declaration, no free days...)
+  unread_email         an email no reader made sense of that names one of our invoices or waybills
+  unread_document      a document nothing could be read out of that names one of our invoices or waybills
+  near_miss_reference  a waiver, credit note, extension or payment request whose invoice or waybill is one or two
+                       characters off one of ours (a typo, or a decoy)
+
+Order: risky executes first (an unsafe execute is the costliest mistake), then by the money billed on the lines in
+question. At most config.REVIEW_MAX_CASES.
 """
 from __future__ import annotations
 
@@ -16,41 +29,52 @@ from ..decide.common import ZERO, Verdict, amount_of, invoice_date, lines_of
 from ..knowledge.view import day
 from .library import Library, compact
 
-UPGRADE_CLASSES = ("waived_but_billed", "duplicate")
 REASONS = {
+    "risky_execute": "a finding about to be executed with no person looking rests on a read code couldn't verify",
     "waiver_condition": "a waiver from an authorised person sets a condition in words code can't check",
     "waiver_scope": "a waiver from an authorised person names no waybill, invoice or month that code could read",
     "quoted_waiver": "a waiver seen only quoted inside someone else's email; the original may be held",
-    "unmapped_labels": "billed lines whose label isn't in Annex E and wasn't mapped, so no detector looked at them",
+    "unmapped_labels": "billed lines whose label isn't in Annex E and wasn't mapped, so no check looked at them",
+    "unpriced_lines": "billed lines code couldn't price",
     "unread_email": "an email no reader could make sense of names this invoice or its waybills",
-    "second_look": "a finding about to be executed with no person looking",
+    "unread_document": "a document nothing could be read out of names this invoice or its waybills",
+    "near_miss_reference": "a document refers to an invoice or waybill one or two characters off one of ours",
 }
 WAIVER_WINDOW = timedelta(days=90)
 PER_WAIVER = 3
+UNVERIFIED = ("unverified", "vision")
+NEAR_KINDS = ("waiver", "credit_note", "due_date_extension", "payment_request")
 
 
 @dataclass
 class Case:
     reason: str
     invoice_id: str | None
-    cls: str | None                       # the class it's about; None: the reviewer says (waived or duplicate)
-    power: str                            # "upgrade" or "hold"
-    verdict: Verdict | None = None        # what code said, if anything
+    cls: str | None                       # the class code was looking at, if any
+    verdict: Verdict | None = None        # what code said about it, if anything
     focus_docs: list[int] = field(default_factory=list)
     focus_facts: list[int] = field(default_factory=list)
-    weight: Decimal = ZERO
+    weight: Decimal = ZERO                # money billed on the lines in question
     contract: str | None = None
     note: str = ""                        # the specific question, in words
+    doc_ref: str | None = None            # for a case about one document
+    context: list[str] = field(default_factory=list)   # code's conclusions on the same invoice
 
     @property
     def key(self) -> str:
         if self.verdict is not None:
             return self.verdict.finding_key
-        return f"{self.cls or 'open'}|{self.invoice_id}"
+        if self.reason in ("unread_document", "near_miss_reference") and self.invoice_id is None:
+            return f"{self.reason}|{self.doc_ref}"
+        return f"{self.cls or 'open'}|{self.invoice_id}|{self.reason}"
 
     @property
     def why(self) -> str:
         return REASONS[self.reason]
+
+    @property
+    def code_finding(self) -> bool:
+        return self.verdict is not None and self.verdict.verdict == "finding"
 
 
 def pick(lib: Library, verdicts: list[Verdict], gates: dict, mode: str, limit: int) -> list[Case]:
@@ -68,31 +92,46 @@ def pick(lib: Library, verdicts: list[Verdict], gates: dict, mode: str, limit: i
         return [f for f in lines_of(view, h) if f.id not in claimed and amount_of(f) > 0] if h else []
 
     def add(c: Case) -> None:
-        if c.invoice_id and c.cls and has_finding(c.cls, c.invoice_id):
+        if c.invoice_id and c.cls and not c.code_finding and has_finding(c.cls, c.invoice_id):
             return
         h = lib.headers.get(c.invoice_id) if c.invoice_id else None
         if h is not None and h.doc_id not in c.focus_docs:
             c.focus_docs.append(h.doc_id)
         c.contract = c.contract or lib.contract.get(c.invoice_id or "")
-        cases.setdefault((c.invoice_id, c.cls, c.reason), c)
+        c.context = [f"{v.finding_key}: {v.verdict}" + (f" USD {v.amount_usd}" if v.amount_usd is not None else "")
+                     + f" ({v.why})" for v in verdicts
+                     if c.invoice_id and v.key.get("invoice_id") == c.invoice_id and v.verdict != "no_finding"]
+        cases.setdefault((c.invoice_id, c.cls, c.reason, c.doc_ref), c)
 
-    # 1. waiver questions code left open (decide/waiver.py records them on its verdict)
+    # autonomous: about to execute on a read code couldn't verify
+    risky = []
+    if mode == "autonomous":
+        for v in verdicts:
+            gate = gates.get(v.finding_key)
+            weak = sorted({s.fact.verification for s in v.evidence if (s.fact.verification or "") in UNVERIFIED})
+            if v.verdict == "finding" and gate is not None and gate.action.startswith("execute:") and weak:
+                c = Case("risky_execute", v.key.get("invoice_id"), v.cls, v,
+                         [s.fact.doc_id for s in v.evidence][:4], [s.fact.id for s in v.evidence],
+                         v.amount_usd or ZERO, v.contract,
+                         f"Part of the evidence was read as {', '.join(weak)}: check those numbers against the page.")
+                add(c)
+                risky.append(c)
+
+    # waiver questions code left open (decide/waiver.py records them on its verdict)
     for v in verdicts:
         if v.cls != "waived_but_billed" or v.verdict == "finding":
             continue
         for q in v.checks.get("open") or []:
             w = lib.facts_by_id.get(q.get("waiver"))
-            if w is None:
-                continue
             lines = [lib.facts_by_id[i] for i in q.get("lines") or [] if i in lib.facts_by_id and i not in claimed]
-            if not lines:
+            if w is None or not lines:
                 continue
             note = (f"The waiver's condition, as the reader took it down: {w.payload.get('condition')!r}."
                     if q["reason"] == "waiver_condition" else "")
-            add(Case(q["reason"], v.key["invoice_id"], "waived_but_billed", "upgrade", v, [w.doc_id],
+            add(Case(q["reason"], v.key["invoice_id"], "waived_but_billed", v, [w.doc_id],
                      [w.id] + [f.id for f in lines], sum((amount_of(f) for f in lines), ZERO), v.contract, note))
 
-    # 2. waivers from an authorised person that the reader couldn't pin to a waybill, invoice or month
+    # authorised waivers the reader couldn't pin to a waybill, invoice or month
     for w in view.kind("waiver"):
         p = w.payload
         if p.get("from_quoted_text") or p.get("awbs") or p.get("invoices") or p.get("months"):
@@ -106,64 +145,100 @@ def pick(lib: Library, verdicts: list[Verdict], gates: dict, mode: str, limit: i
             if terms.auth.of_email_fact(w, contract, "waivers", said_on).level > 2:
                 continue
             codes = {terms.charge_code(contract, c) for c in p.get("charges") or []} - {None}
-            lines = [f for f in free_lines(inv) if terms.charge_code(contract, f.payload.get("label")) in codes]
-            lines = [f for f in lines if _near(day(f.payload.get("pickup_date")) or invoice_date(h), said_on)]
+            lines = [f for f in free_lines(inv) if terms.charge_code(contract, f.payload.get("label")) in codes
+                     and _near(day(f.payload.get("pickup_date")) or invoice_date(h), said_on)]
             if lines:
                 gap = min(abs(((day(f.payload.get("pickup_date")) or invoice_date(h) or said_on) - said_on).days)
                           for f in lines)
                 found.append((gap, inv, contract, lines))
         for _, inv, contract, lines in sorted(found)[:PER_WAIVER]:
-            add(Case("waiver_scope", inv, "waived_but_billed", "upgrade",
+            add(Case("waiver_scope", inv, "waived_but_billed",
                      by_key.get(norm.finding_key({"class": "waived_but_billed", "invoice_id": inv})),
                      [w.doc_id], [w.id] + [f.id for f in lines], sum((amount_of(f) for f in lines), ZERO), contract,
                      f"The waiver as the reader took it down: charges {p.get('charges')}, scope words "
                      f"{p.get('scope_words')!r}."))
 
-    # 3. labels nobody mapped: no detector could see these lines
+    # lines no check could look at, or couldn't price
     for inv in sorted(lib.headers):
         contract = lib.contract.get(inv)
-        lines = [f for f in free_lines(inv) if terms.charge_code(contract, f.payload.get("label")) is None]
-        if lines:
-            add(Case("unmapped_labels", inv, None, "upgrade", None, [], [f.id for f in lines],
-                     sum((amount_of(f) for f in lines), ZERO), contract,
-                     "Unmapped labels: " + "; ".join(sorted({str(f.payload.get('label')) for f in lines}))))
+        unmapped = [f for f in free_lines(inv) if terms.charge_code(contract, f.payload.get("label")) is None]
+        if unmapped:
+            add(Case("unmapped_labels", inv, None, None, [], [f.id for f in unmapped],
+                     sum((amount_of(f) for f in unmapped), ZERO), contract,
+                     "Unmapped labels: " + "; ".join(sorted({str(f.payload.get('label')) for f in unmapped}))))
+        ip = lib.pricing(inv)
+        free = {f.id for f in free_lines(inv)}
+        unpriced = [lp for lp in (ip.lines() if ip else []) if lp.status == "unpriceable" and lp.code
+                    and lp.line.id in free]
+        if unpriced:
+            add(Case("unpriced_lines", inv, "overcharge",
+                     by_key.get(norm.finding_key({"class": "overcharge", "invoice_id": inv})), [],
+                     [lp.line.id for lp in unpriced], sum((amount_of(lp.line) for lp in unpriced), ZERO), contract,
+                     "Why code couldn't price them: " + "; ".join(
+                         f"{lp.line.payload.get('label')} ({lp.code}) on {lp.line.awb or inv}: {lp.why}"
+                         for lp in unpriced[:6]) + "."))
 
-    # 4. emails no reader understood that name one of our invoices or its waybills
+    # documents nothing was read out of, that name one of our invoices or waybills
+    names: dict[str, str] = {}
+    for inv in lib.headers:
+        for n in lib.names_of(inv):
+            names.setdefault(n, inv)
     read = {f.doc_id for f in view.facts}
-    children: dict[int, list[int]] = {}
-    for d in lib.docs.values():
-        if d.parent_id is not None:
-            children.setdefault(d.parent_id, []).append(d.doc_id)
-    names = {}
-    for inv, h in lib.headers.items():
-        names[compact(inv)] = inv
-        for f in lines_of(view, h):
-            if f.awb and len(compact(f.awb)) >= 6:
-                names.setdefault(compact(f.awb), inv)
-    for doc_id, em in sorted(lib.emails.items()):
-        if doc_id in read or any(c in read for c in children.get(doc_id, [])):
+    for doc_id, d in sorted(lib.docs.items()):
+        if doc_id in lib.injected:
             continue
-        text = compact(em["own"])
-        hit = sorted({inv for name, inv in names.items() if name and name in text})
-        for inv in hit[:2]:
+        unread = lib.unread(doc_id)
+        empty_email = (doc_id in lib.emails and doc_id not in read and not unread
+                       and not any(c in read for c in lib.children.get(doc_id, [])))
+        if not (unread or empty_email):
+            continue
+        text = compact(lib.emails[doc_id]["own"]) if empty_email else lib.flat.get(doc_id, "")
+        for inv in sorted({inv for n, inv in names.items() if n in text})[:2]:
             lines = free_lines(inv)
-            if lines:
-                add(Case("unread_email", inv, None, "upgrade", None, [doc_id], [f.id for f in lines],
-                         sum((amount_of(f) for f in lines), ZERO)))
+            add(Case("unread_email" if empty_email else "unread_document", inv, None, None, [doc_id],
+                     [f.id for f in lines], sum((amount_of(f) for f in lines), ZERO), doc_ref=d.doc_ref))
 
-    upgrades = sorted(cases.values(), key=lambda c: (-c.weight, c.invoice_id or "", c.reason))
+    # references one or two characters off ours: a typo worth a look, or a decoy
+    for f in view.facts:
+        if f.kind not in NEAR_KINDS or f.payload.get("from_quoted_text") or f.doc_id in lib.injected:
+            continue
+        for ref in _refs(f):
+            if ref in names:
+                continue           # it matches exactly: code already used it
+            inv = next((names[n] for n in sorted(names) if _close(ref, n)), None)
+            if inv is not None:
+                add(Case("near_miss_reference", inv, None, None, [f.doc_id], [f.id],
+                         sum((amount_of(x) for x in free_lines(inv)), ZERO), lib.contract.get(inv),
+                         f"The {f.kind.replace('_', ' ')} refers to {ref}, which matches nothing we hold; invoice "
+                         f"{inv} has a reference one or two characters away.", doc_ref=f.doc_ref))
+                break
 
-    # 5. autonomous mode: a second look at whatever is about to go out with nobody looking
-    holds = []
-    if mode == "autonomous":
-        for v in verdicts:
-            gate = gates.get(v.finding_key)
-            if v.verdict == "finding" and gate is not None and gate.action.startswith("execute:"):
-                docs = [s.fact.doc_id for s in v.evidence][:4]
-                holds.append(Case("second_look", v.key.get("invoice_id"), v.cls, "hold", v, docs,
-                                  [s.fact.id for s in v.evidence], v.amount_usd or ZERO, v.contract))
-        holds.sort(key=lambda c: (-c.weight, c.key))
-    return (upgrades + holds)[:max(0, limit)]
+    rest = sorted((c for c in cases.values() if not any(c is r for r in risky)), key=lambda c: (-c.weight, c.key))
+    return (sorted(risky, key=lambda c: (-c.weight, c.key)) + rest)[:max(0, limit)]
+
+
+def _refs(f) -> list[str]:
+    p = f.payload
+    out = [compact(a) for a in p.get("awbs") or []] + [compact(i) for i in p.get("invoices") or []]
+    out += [compact(i) for i in [f.invoice_id, *(p.get("refers_to_invoices") or [])] if i]
+    return [r for r in dict.fromkeys(out) if len(r) >= 6]
+
+
+def _close(a: str, b: str) -> bool:
+    """One or two edits apart (a swapped pair counts as one), for references of six characters or more."""
+    if a == b or len(b) < 6 or abs(len(a) - len(b)) > 2:
+        return False
+    if len(a) == len(b):
+        diff = [i for i in range(len(a)) if a[i] != b[i]]
+        if len(diff) == 2 and diff[1] == diff[0] + 1 and a[diff[0]] == b[diff[1]] and a[diff[1]] == b[diff[0]]:
+            return True
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
+        prev = cur
+    return prev[-1] <= 2
 
 
 def _near(d: date | None, said_on: date | None) -> bool:

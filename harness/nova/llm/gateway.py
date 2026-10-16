@@ -191,13 +191,17 @@ class Gateway:
                 raise _ModelRefused(str(e)) from e
             raise LLMFailed(f"{model}: {type(e).__name__}: {e}") from e
 
-    def step(self, *, purpose: str, version: str, models: Sequence[str], system: str, messages: list[dict],
-             tools: list[dict], max_tokens: int = 4096) -> StepResult:
+    def step(self, *, purpose: str, version: str, models: Sequence[str], system, messages: list[dict],
+             tools: list[dict], max_tokens: int = 4096, cache_system: bool = False) -> StepResult:
         """One turn of a conversation in which the model must call at least one of `tools`. An agent loop calls this
         again with the tool results added. Cached by the whole conversation so far, so a re-run on the same evidence
-        replays exactly the same turns and reaches exactly the same answer."""
+        replays exactly the same turns and reaches exactly the same answer. `cache_system` marks the system prompt
+        (and with it the tool definitions before it) for Anthropic's prompt caching: the same for every case, so
+        every case after the first reads it from the cache."""
         if not models:
             raise LLMUnavailable("no models configured")
+        if cache_system:
+            system = [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
         key = fingerprint({"purpose": purpose, "version": version, "models": list(models), "system": system,
                            "messages": messages, "tools": tools,
                            "endpoint": os.environ.get("ANTHROPIC_BASE_URL") or ""})

@@ -46,10 +46,16 @@ LLM_MAX_RETRIES = 4
 # `report`. It runs inside the report step's 600 s, so it has its own time budget and a cap on cases; whatever doesn't
 # fit keeps the verdict code gave it.
 REVIEW_MODELS = _list("NOVA_REVIEW_MODELS", ("claude-opus-5-5", "claude-sonnet-5-5"))
-REVIEW_MAX_CASES = int(os.environ.get("NOVA_REVIEW_CASES", "20"))
+REVIEW_MAX_CASES = int(os.environ.get("NOVA_REVIEW_CASES", "30"))
 REVIEW_BUDGET_S = float(os.environ.get("NOVA_REVIEW_BUDGET", "300"))
 REVIEW_WORKERS = int(os.environ.get("NOVA_REVIEW_WORKERS", "6"))
 REVIEW_MAX_TURNS = 8
+
+
+# Our own rules for bringing in a person (nova/review/route.py) may hold items for human_review only while the share of
+# escalated items (escalate + human_review) in a report stays at or under this. The grader's hard gate is 60%.
+ESCALATION_BUDGET = float(os.environ.get("NOVA_ESCALATION_BUDGET", "0.5"))
+ESCALATION_MIN_ITEMS = 10
 
 
 def review_enabled() -> bool:

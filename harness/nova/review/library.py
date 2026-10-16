@@ -1,11 +1,11 @@
-"""What the reviewer may read, and the read-only tools it reads it with.
+"""What the reviewer may read: everything received by the as_of date, loaded once into memory.
 
-Everything is loaded once, in the report's own thread, from documents received by the as_of date: page text, each
-email's own words and quoted part, and the facts. The agents then run in worker threads against these in-memory
-copies (an SQLite connection can't be shared across threads). Nothing here writes anything.
+Page text, each email's own words and quoted part, the facts, document status and code's pricing are loaded in the
+report's own thread; the agents then run in worker threads against these copies (an SQLite connection can't be shared
+across threads). Nothing here writes anything. tools.py builds the agent's tools on top of it.
 
-`check` and `level` are code's side of the bargain: a citation the reviewer gives only counts if its quote is on the
-page it names, and it only counts for as much authority as its document has (GLOSSARY "Which document wins").
+`check` and `level` are code's seat belt on quotes: a citation only counts if its quote is on the page it names, and
+only for as much authority as its document has (GLOSSARY "Which document wins").
 """
 from __future__ import annotations
 
@@ -38,6 +38,11 @@ def squash(s: str | None) -> str:
 def compact(s: str | None) -> str:
     """Letters and digits only, upper case: how an invoice number or waybill is matched inside free text."""
     return re.sub(r"[^A-Z0-9]", "", (s or "").upper())
+
+
+def _topic(subject: str | None) -> str:
+    """An email's subject without its Re: / Fwd: prefixes, to find the rest of its thread."""
+    return re.sub(r"^\s*((re|fw|fwd|aw|wg|tr)\s*:\s*)+", "", (subject or "").strip(), flags=re.I).lower()
 
 
 def clip(text: str, n: int) -> str:
@@ -76,8 +81,19 @@ class Library:
         self.facts_by_id = {f.id: f for f in view.facts}
         self.headers = invoice_headers(view)
         self.contract = {inv: contract_of(terms, h) for inv, h in self.headers.items()}
+        self.status: dict[int, str | None] = {}
+        self.children: dict[int, list[int]] = {}
+        for doc_id, d in sorted(self.docs.items()):
+            row = store.document(doc_id)
+            self.status[doc_id] = row["status"] if row is not None else None
+            if d.parent_id is not None:
+                self.children.setdefault(d.parent_id, []).append(doc_id)
+        # each document's text as letters and digits only, to find which documents name an invoice or a waybill
+        self.flat = {doc_id: compact(" ".join(p for _, p in sorted(pages.items())))
+                     for doc_id, pages in self.pages.items()}
+        self.injected = {f.doc_id for f in view.kind("injection_attempt")}
         self._lock = threading.Lock()     # pricing and terms keep caches: one thread at a time
-        self._priced: dict[str, list[dict]] = {}
+        self._pricing: dict = {}
 
     # ---- reading ----------------------------------------------------------------------------------------------
     def describe(self, d: DocInfo) -> dict:
@@ -131,6 +147,58 @@ class Library:
                 "already_claimed_by": claimed.get(f.id)}.items() if v not in (None, "")})
         return rows
 
+    def pricing(self, invoice_id: str):
+        """Code's pricing of one invoice (knowledge/pricing.InvoicePricing), worked out once."""
+        with self._lock:
+            if invoice_id not in self._pricing:
+                h = self.headers.get(invoice_id)
+                self._pricing[invoice_id] = price_invoice(self.terms, h) if h is not None else None
+            return self._pricing[invoice_id]
+
+    def names_of(self, invoice_id: str) -> set[str]:
+        """The invoice number and its waybills, letters and digits only (how other documents mention them)."""
+        h = self.headers.get(invoice_id)
+        names = {compact(invoice_id)}
+        if h is not None:
+            names |= {compact(f.awb) for f in lines_of(self.view, h) if f.awb and len(compact(f.awb)) >= 6}
+        return {n for n in names if n}
+
+    def related(self, invoice_id: str | None, extra: list[int] = (), limit: int = 25) -> list[DocInfo]:
+        """Every document received by as_of that names this invoice or one of its waybills, plus the invoice's own
+        email and attachments: the index the reviewer works from."""
+        ids = set(extra)
+        if invoice_id:
+            names = self.names_of(invoice_id)
+            ids |= {doc_id for doc_id, flat in self.flat.items() if any(n in flat for n in names)}
+            h = self.headers.get(invoice_id)
+            if h is not None:
+                d = self.docs.get(h.doc_id)
+                parent = d.parent_id if d and d.parent_id else h.doc_id
+                ids |= {parent, *self.children.get(parent, [])}
+        threads = {_topic(self.docs[i].subject) for i in ids if i in self.emails and i in self.docs} - {""}
+        if threads:     # replies and forwards in the same email thread
+            ids |= {i for i in self.emails if i in self.docs and _topic(self.docs[i].subject) in threads}
+        docs = sorted((self.docs[i] for i in ids if i in self.docs), key=lambda d: (d.received_at, d.doc_ref))
+        return docs[:limit]
+
+    def feedback_for(self, finding_key: str) -> list[str]:
+        with self._lock:
+            items = self.terms.feedback.for_key(finding_key)
+        return [f"{it.get('item_id')}: {it.get('decision')} {json.dumps(it.get('fact') or {}, default=str)[:300]}"
+                for it in items]
+
+    def unread(self, doc_id: int) -> bool:
+        """Nothing was ever read out of this document or its email: it failed, or no reader got to it."""
+        if self.status.get(doc_id) == "failed":
+            return True
+        if self.status.get(doc_id) not in ("new", "read"):
+            return False
+        d = self.docs.get(doc_id)
+        family = {doc_id, *self.children.get(doc_id, [])}
+        if d is not None and d.parent_id is not None:
+            family |= {d.parent_id, *self.children.get(d.parent_id, [])}
+        return not any(self.facts_by_doc.get(i) for i in family)
+
     # ---- tools ------------------------------------------------------------------------------------------------
     def read_document(self, doc: str, page: int | None = None) -> str:
         d = self.by_ref.get(str(doc).strip())
@@ -177,23 +245,6 @@ class Library:
         rows = [self.fact_row(f) for f in self.view.get("ledger_entry", invoice_id=invoice_id)]
         return json.dumps({"register_rows": rows}, ensure_ascii=False, default=str) if rows else \
             f"The payment register has no row for {invoice_id} as of this date."
-
-    def price_invoice(self, invoice_id: str) -> str:
-        inv = norm.invoice_id(invoice_id)
-        h = self.headers.get(inv)
-        if h is None:
-            return f"No invoice {invoice_id} received by the as-of date."
-        with self._lock:
-            if inv not in self._priced:
-                ip = price_invoice(self.terms, h)
-                self._priced[inv] = [{k: v for k, v in {
-                    "fact_id": lp.line.id, "label": lp.line.payload.get("label"), "awb": lp.line.awb,
-                    "charge_code": lp.code, "billed": str(lp.billed), "status": lp.status,
-                    "expected": None if lp.expected is None else str(lp.expected),
-                    "options": {k: str(x) for k, x in lp.options.items()} or None, "why": lp.why,
-                    "working": lp.steps[:4] or None}.items() if v is not None} for lp in ip.lines()]
-        return clip(json.dumps({"invoice": inv, "contract": self.contract.get(inv), "lines": self._priced[inv]},
-                               ensure_ascii=False), ANSWER_CHARS)
 
     # ---- code's checks on what the reviewer cites ------------------------------------------------------------
     def check(self, c: dict, contract: str | None, category: str | None) -> Checked | None:

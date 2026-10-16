@@ -586,3 +586,131 @@ What it did: set out the fix plan for the review's findings in four batches, eac
 - **Batch 4, after the live run:** calibrated confidence.
 
 It also corrected one earlier point: tax stays out of duplicates, because the glossary says the amount is the duplicated lines only. No code changed.
+
+**Prompt 34** (2026-10-16 23:46)
+
+```text
+should'nt we use llm and give it access of the session db which we will create per batch and create a tool that can help llm to give what it need from the session from the whole  emails we have in the db. we can use it like mcp server which will give llm toll access. give me your opinion on this architecture.
+```
+
+What it did: gave an opinion on letting the LLM query a per-batch session database through tools served over MCP.
+- **Agreed:** pulling evidence through tools beats stuffing it into the prompt, and the reviewer already works this way.
+- **Disagreed on three points:**
+  - A database per batch would split evidence that spans batches (a contract from batch 1, its invoice from batch 3, the register from batch 5). It should be one cumulative store per state folder, filtered by as_of.
+  - The tools should be typed, read-only and as_of-scoped, never raw SQL.
+  - MCP adds nothing inside the grader's single process. The same tool schemas can be served in-process to the harness and wrapped as an optional MCP server for production.
+- **Proposed:** one tool layer (search, read, facts, register, terms, pricing, fx, late-fee and authority tools, plus one write tool, `record_judgement`, that code validates) shared by the investigator and the reviewer, with code still deciding.
+
+No code changed.
+
+**Prompt 39** (2026-10-16 23:52)
+
+```text
+ok tell me what are you gonna build next and how. plan it and tell me. also keep in mind about that any hard coded rule that can make our system unstable we have to fix that
+```
+
+What it did: laid out the build plan in five phases.
+- **A, stability first:**
+  - a register of every hard-coded rule, each marked as spec (from the glossary) or our own convention;
+  - a general "assumption" marker: when a convention is used because the contract is silent, the item can't be executed, loses confidence and says so;
+  - the Batch 1 fixes, contract clauses read as fixed choices, the own-words check for forwarded waivers, and reading leftover documents during `report` with adaptive concurrency.
+- **B, a live run on your machine through the Gemini proxy:** one script to run, outputs sent back to me.
+- **C, the shared tool layer:** calculation tools, `record_judgement`, an investigator at ingest, and an optional MCP server.
+- **D, confidence calibration.**
+- **E, the submission:** evals, DESIGN, SOLUTION, AI_USE, validate, answer sheet.
+
+It gave the order and where to cut if time runs short. No code changed.
+
+**Prompt 40** (2026-10-16 23:59)
+
+```text
+I want that whatever our system fails to catch, or if there is any doubt in some documents / email , we send it to a reviewer and get it re-evaluated - the reviewer will take all the context and documents. and then it decide what to do. also t should know when to add a human means we should have some rules on basis of which it decide if we have to send it to the human reviewer. -  focus on this now
+```
+
+What it did: widened the case reviewer and added explicit rules for bringing in a person.
+- **The reviewer catches more.** Triage now also sends:
+  - findings on weak evidence (unverified or scanned reads, a pickup date from the waybill or invoice, mapped labels, low confidence), in both modes;
+  - missing-document cases, to check whether the document is held after all;
+  - documents nothing could be read out of;
+  - "orphan" waivers, credits, extensions and payment requests that match nothing we hold;
+  - lines code couldn't price.
+- **Order and limits:** safety first, then money, up to 30 cases.
+- **Fuller case file:** code's other conclusions on the invoice, a person's decisions on the key, and an index of every related document.
+- **The reviewer says what should happen:** confirm / correct / hold for a person / not relevant / needs a document, with a reason and a note.
+- **A new `route.py` applies the rules on every report:**
+  - the glossary's: threshold, conflict, unattended test;
+  - ours: reviewer found, reviewer holds with a checked quote, reviewer asks, unverified read, planted text, reviewer couldn't finish.
+- **Two ways to a person:**
+  - the report's human_review, inside a 50% escalation budget that releases the weakest holds first (reports with 10 or more items);
+  - an unlimited human review queue (schema v3 table plus a page per report). Supervised actions never change because of our rules.
+- **Report items** carry a `human` field.
+- **Docs:** ARCHITECTURE M19 updated.
+
+201 tests pass. Checked the grader: escalate and human_review both count towards its 60% cap.
+
+**Prompt 41** (2026-10-17 02:24)
+
+```text
+not just plan about what kind of system will minimize the human review required because we have to minimize the human intercation. i think for critical cases we have to call second agent which is reviewer because reviewing every case will take double time and waste of token second agent should be only for critical cases which means cases that first agent and our python code unable to figure out and which become ambigious we will give them to the 2nd agent which will directly give output using tools we will provide it. i think there is no need to again vaildate things just give better prompt and the context related to the agent through tool and let him decide. also if he finds out that it need to be reviewed by the human then he send it to the human. it will do this human review based on our defined rules which we will provide in the prompt that if it fulfill human review creteira send it to human otehrwise give its report which. will be added to it. plan this and tell me then we will decide what to do. u can contradict me if i am wrong somewhere throughout the session.
+```
+
+What it did: planned a leaner reviewer that brings in people as little as possible.
+- **Only ambiguous cases go to the reviewer.** No second look at clean findings, and no review of supervised drafts. Orphans only when a reference nearly matches one we hold; unpriced lines and unread documents only when they name our invoices.
+- **The reviewer decides directly**, using calculation tools for every amount, and with the human-review criteria written into its prompt.
+- **Pushed back on two points:**
+  - Keep a few zero-token code "seat belts" rather than re-checking the reasoning: quotes found on the page (the grader scores this), no reliance on planted text, amounts only from tools, recipients only from Schedule 1, never execute in supervised mode.
+  - Keep the glossary-mandated human review ($5,000, failed autonomous checks, conflicts) in code. In supervised mode, an agent's "send to a person" stays a draft, plus a queue note.
+- **Dropped:** the mechanical upgrade tests and the automatic queue rules R4-R6.
+
+No code changed.
+
+**Prompt 42** (2026-10-17 02:37)
+
+```text
+that good we will use evals to test this dont worry but before starting coding tell. me one more thing also like we are using mcp kind of tools that llm can call to line_price , etc. are these enough can they handle it. and how we will pass context and related things to the 2nd agentss llm. clarify this once to me
+```
+
+What it did: explained that simple arithmetic tools like line_price aren't enough, because contract pricing has bands, minimums, fuel on the correct freight, rounding order and FX once per finding. It proposed four groups of tools:
+- **Context:** read, search, facts, contract terms, register, tracking, Schedule 1, feedback.
+- **The engine as tools:** code's pricing, plus "what-if" repricing with cited overrides (pickup date, rate, weight, free days), late fees, FX, qualifying spend.
+- **Arithmetic:** a safe Decimal calculator for anything the engine doesn't model.
+- **Assembly:** a finding_amount tool that applies the glossary's rounding and conversion. Every calculation gets an id, and the final answer refers to it.
+
+It also explained how context reaches the reviewer in three layers: a static system prompt (rules, authority, human criteria, safety; marked for prompt caching), a case brief built by code from the database, and tools to pull the rest on demand. It walked through one example case and listed the limits. No code changed.
+
+**Prompt 43** (2026-10-17 02:45)
+
+```text
+ok fine implement this now all good from my side
+```
+
+What it did: rebuilt the case reviewer as a second agent that decides the cases code can't settle, and only those.
+- **Narrower triage.** It runs on unclear, unpinned or quoted waivers, unmapped labels, unpriceable lines, unread documents or emails that name our invoices, references a typo away from ours, and (in autonomous mode only) executes resting on an unverified or scanned read. No second look at clean findings or supervised drafts.
+- **New `tools.py`** with a per-case calculation ledger:
+  - context tools (read, search, documents_for, find_facts, contract_terms, register, tracking);
+  - the pricing engine as tools: price_invoice, and reprice_shipment with cited overrides for pickup date, weight or rate, added to `price_shipment`;
+  - late_fee, an exact calc tool, and finding_amount (billed minus correct, converted once). Every amount has an id the decision must name.
+- **New prompt and decision schema.** The glossary rules, the authority levels, six criteria for sending a case to a person, and the safety rules. The system prompt is marked for prompt caching (`Gateway.step(cache_system=True)`). The brief now includes the same email thread in related documents.
+- **`check.py` is down to five seat belts:** quotes on their page; nothing resting on planted text; amounts from a calculation; one claim per line; a code finding never dropped.
+- **Routing:** reviewer findings can now be executed when they pass the glossary checks. `route.py` keeps only the glossary rules G1-G3 plus A1 (the reviewer asks for a person), with the 50% budget.
+- **Docs:** ARCHITECTURE M19 rewritten.
+
+198 tests pass.
+
+**Prompt 44** (2026-10-17 04:02)
+
+```text
+now next thing is confidence score. i want you to a research and find the best way to find it in a agentic applicaiton like ours. take your time and tell me
+```
+
+What it did: researched confidence scoring for agentic LLM systems.
+- **Sources:** verbalized confidence is overconfident (Xiong et al., ICLR 2024); the Claude API exposes no token logprobs; semantic entropy and self-consistency catch inconsistent errors but not consistent ones, at several times the cost (Farquhar et al., Nature 2024); deterministic verification tools reduce miscalibration while evidence tools inflate it ("The Confidence Dichotomy", 2026); multi-step agents should combine uncertainty across all steps, not just the last (SAUP, ACL 2025); Platt or Venn-Abers suit small calibration sets, isotonic needs about 100+ per class.
+- **Grader check:** it scores confidence with Brier and AUROC on every reported item (2.5 points each); decoys count as wrong.
+- **Proposed design:** evidence-based, stage-wise confidence, independent of the model:
+  - reading quality, linking method, authority and corroboration;
+  - counterfactual stability (re-run our own engine under plausible alternative inputs) and margins to boundaries;
+  - class priors, and agent signals only for reviewer cases, with self-consistency only there.
+
+  These go into a regularised, sign-constrained logistic model, fitted on labelled items (the practice key, our evals and injected faults) and calibrated with Platt or Venn-Abers, with the hand weights as fallback. Confidence may also trigger the reviewer agent, never a person.
+
+No code changed.

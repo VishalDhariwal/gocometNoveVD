@@ -169,7 +169,8 @@ class ThroughTheSdk(unittest.TestCase):
         tools = [TOOL, {**TOOL, "name": "search_documents"}]
         msgs = [{"role": "user", "content": [{"type": "text", "text": "case file"}]}]
         first = gw.step(purpose="t", version="1", models=["claude-opus-5-5"], system="Review.", messages=msgs,
-                        tools=tools, max_tokens=500)
+                        tools=tools, max_tokens=500, cache_system=True)
+        self.assertEqual(backend.sent[0][1]["systemInstruction"], {"parts": [{"text": "Review."}]})
         self.assertEqual([c["name"] for c in first.calls], ["search_documents"])
         msgs += [{"role": "assistant", "content": first.content},
                  {"role": "user", "content": [{"type": "tool_result", "tool_use_id": first.calls[0]["id"],

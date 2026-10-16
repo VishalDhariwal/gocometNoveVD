@@ -32,6 +32,7 @@ from ..jsonx import loads
 from ..knowledge.terms import Terms
 from ..knowledge.view import View, day
 from ..review import review
+from ..review.route import route, write_queue
 from ..store import Store
 from .evidence import Citations, norm as norm_text
 from .explain import explanation, role
@@ -147,13 +148,16 @@ def build_report(store: Store, as_of: str, mode: str, report_id: int, gateway=No
     cites = {v.finding_key: _citations(checker, v) for v in verdicts if v.verdict in PRESENT}
     cited = {k: c[1] for k, c in cites.items()}
     gates = policy.decide(terms, verdicts, mode, cited)
+    reviewed = []
     if gateway is not None:
-        reviewed = review(store, gateway, terms, verdicts, mode=mode, gates=gates, report_id=report_id)
-        if reviewed is not verdicts:
-            verdicts = reviewed
+        after, reviewed = review(store, gateway, terms, verdicts, mode=mode, gates=gates, report_id=report_id)
+        if after is not verdicts or reviewed:
+            verdicts = after
             cites = {v.finding_key: _citations(checker, v) for v in verdicts if v.verdict in PRESENT}
             cited = {k: c[1] for k, c in cites.items()}
             gates = policy.decide(terms, verdicts, mode, cited)
+    referrals = route(view, verdicts, gates, mode, reviewed)    # who needs a person (may hold an execute)
+    referred = {r.key: r for r in referrals}
     base, base_gates = {}, {}
     if view.feedback:   # the same report with nobody's feedback, to tell what feedback changed
         plain = view.without_feedback()
@@ -196,6 +200,9 @@ def build_report(store: Store, as_of: str, mode: str, report_id: int, gateway=No
             item["recipient"] = {k: gate.recipient[k] for k in ("person", "role", "party", "email")
                                  if gate.recipient.get(k)}
         item["explanation"] = explanation(v)
+        if (r := referred.get(v.finding_key)) is not None:
+            item["human"] = {"rule": r.rule, "reason": r.reason, "priority": r.priority}
+            item["explanation"].append(f"For a person ({r.rule}): {r.reason}.")
         target = rep["findings"] if v.cls in INVOICE_CLASSES else rep["portfolio"][PORTFOLIO[v.cls]]
         target.append(item)
         emitted.append((v, gate, item, version, sig))
@@ -208,4 +215,6 @@ def build_report(store: Store, as_of: str, mode: str, report_id: int, gateway=No
                           verdict=v.verdict, action=item["action"], item=item)
     from ..clerk.drafts import file_actions
     file_actions(store, report_id, mode, [(v, gate, item) for v, gate, item, _, _ in emitted])
+    store.add_referrals(report_id, mode, as_of, referrals)
+    write_queue(store.path.parent, mode, as_of, referrals)
     return rep

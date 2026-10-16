@@ -1,28 +1,24 @@
-"""The case reviewer: a Claude agent that takes a second look at the cases code finds hard, during `report`.
+"""The case reviewer: a second Claude agent that decides the cases code can't settle, during `report`.
 
-Code reads every document into facts and decides by the glossary's rules (decide/). A few cases need judgement across
-several documents that those rules can't give, and there code either stays silent or acts with nobody looking:
+Code reads every document into facts and decides by the glossary's rules (decide/). A case goes to the reviewer only
+when code is stuck or about to act on something it couldn't verify (triage.py): a waiver whose condition is in words,
+a waiver with no scope code could read, a waiver seen only quoted, labels nobody mapped, lines code couldn't price,
+documents nothing could be read out of that name our invoices, references a typo away from ours, and in autonomous
+mode a finding about to be executed on an unverified read. Everything else never reaches it.
 
-    waiver_condition  a waiver whose condition is in words ("provided you confirm the Q3 forecast")
-    waiver_scope      a waiver from an authorised person where the reader found no waybill, invoice or month
-    quoted_waiver     a waiver seen only quoted, when the original may be held under other wording
-    unmapped_labels   billed lines whose label nobody could map to an Annex E code (so no detector saw them)
-    unread_email      an email no reader understood that names one of our invoices or its waybills
-    second_look       autonomous mode: a dispute or claim about to be executed with no person looking
+    triage (code)    picks those cases, risky executes first, then money; at most config.REVIEW_MAX_CASES
+    agent (Claude)   decides each one (agent.py). Context comes in three layers: a fixed system prompt with the rules
+                     and the criteria for bringing in a person, a case brief built from the store, and tools to pull
+                     the rest (tools.py): documents, contract terms, tracking, the register, and code's own pricing
+                     engine, a what-if repricer, late-fee and exact arithmetic tools. Every amount is a calculation
+                     with an id; the decision names it.
+    check (code)     five seat belts and nothing more: quotes on their pages, nothing resting on planted text, the
+                     amount is the named calculation, a line claimed once, a code finding never dropped
+    gate + route     the glossary's action gate as for every item; the reviewer's "send to a person" holds an
+                     autonomous finding (A1), inside an escalation budget; the human review queue (route.py)
 
-The flow, one case at a time (cases run in parallel):
-
-    triage (code)    picks the cases, money first, at most config.REVIEW_MAX_CASES
-    agent (Claude)   reads the original documents with read-only tools and answers in a fixed shape, with quotes
-    check (code)     every quote must be on its page; every source must have the authority the glossary asks for;
-                     nothing may rest on quoted text, outsiders or text aimed at automated readers; the money is
-                     worked out by code from the billed lines; only two upgrades exist (waived_but_billed and
-                     duplicate), each with its own mechanical test
-    gate             anything that rests on the reviewer is never executed: draft in supervised, human_review in
-                     autonomous. A reviewer's cited disagreement holds an autonomous execute for a person.
-
-Open in what it reads, closed in what it can do. If the API isn't there, the time runs out or an answer doesn't hold
-up, the case keeps the verdict code gave it. Every case is written to the `reviews` table with what code did and why.
+If the API isn't there or the time runs out, the case keeps the verdict code gave it. Every case is written to the
+`reviews` table with the decision and what code did with it.
 """
 from .run import review
 

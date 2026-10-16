@@ -1,5 +1,5 @@
 """The state store: one SQLite file per state folder, <state-dir>/nova.db. The schema is in schema_v1.sql, plus
-schema_v2.sql (the case reviewer's audit trail).
+schema_v2.sql (the case reviewer's audit trail) and schema_v3.sql (the human review queue).
 
 Why SQLite: it's in Python's standard library (nothing to install in the grader's container), it's a single file
 inside --state-dir (the only place that survives between grader steps), and its transactions mean a step killed
@@ -36,7 +36,7 @@ log = logging.getLogger(__name__)
 
 DB_NAME = "nova.db"
 # (version, file). Append new files; never edit one that has shipped.
-MIGRATIONS: list[tuple[int, str]] = [(1, "schema_v1.sql"), (2, "schema_v2.sql")]
+MIGRATIONS: list[tuple[int, str]] = [(1, "schema_v1.sql"), (2, "schema_v2.sql"), (3, "schema_v3.sql")]
 MIGRATIONS_LATEST = MIGRATIONS[-1][0]
 
 _DOC_FIELDS = {"doc_type", "doc_type_confidence", "status", "error", "is_scan"}
@@ -516,6 +516,16 @@ class Store:
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (report_id, finding_key, reason, None if opinion is None else dumps(opinion), outcome, detail, model,
                  turns, norm.utc_now()))
+
+    def add_referrals(self, report_id: int, mode: str, as_of: str, refs) -> None:
+        """The human review queue for one report (nova/review/route.Referral items)."""
+        now = norm.utc_now()
+        with self.transaction():
+            self.con.executemany(
+                "INSERT INTO human_queue(report_id, mode, as_of, item_key, rule, rules, reason, priority, action, "
+                "amount_usd, note, quotes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [(report_id, mode, as_of, r.key, r.rule, dumps(r.rules), r.reason, r.priority, r.action,
+                  None if r.amount is None else f"{r.amount:.2f}", r.note, dumps(r.quotes), now) for r in refs])
 
     # ---- runs -------------------------------------------------------------------------------------------------
     def begin_run(self, command: str, args: dict | None = None) -> int:

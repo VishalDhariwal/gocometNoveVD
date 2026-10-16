@@ -297,12 +297,19 @@ def _new_line(terms: Terms, contract: str | None, f: Fact) -> LinePrice:
 
 
 def price_shipment(terms: Terms, contract: str | None, awb: str | None, lines: list[Fact],
-                   currency: str | None) -> ShipmentPricing:
+                   currency: str | None, overrides: dict | None = None) -> ShipmentPricing:
+    """`overrides` (the case reviewer's what-if, each backed by a quote it gave): pickup (date), weight (kg),
+    rate (per kg, for freight). Everything else (bands, minimums, fuel on the correct freight, fees, rounding) is
+    worked out exactly as for code's own pricing."""
     view = terms.view
+    ov = overrides or {}
     lps = [_new_line(terms, contract, f) for f in lines]
-    pickup = find_pickup(terms, awb, lines, contract)
+    pickup = Pickup(ov["pickup"], "override", None, ["pickup date as given by the case reviewer"]) \
+        if ov.get("pickup") else find_pickup(terms, awb, lines, contract)
     lane = next((f.lane for f in lines if f.lane), None)
     weight, wnotes = _weight(view, awb, lps)
+    if ov.get("weight") is not None:
+        weight, wnotes = ov["weight"], [f"chargeable weight {ov['weight']} kg as given by the case reviewer"]
     sp = ShipmentPricing(awb, lane, pickup, weight, lps, notes=[*pickup.notes, *wnotes])
     on = pickup.date
     for lp in lps:
@@ -321,7 +328,7 @@ def price_shipment(terms: Terms, contract: str | None, awb: str | None, lines: l
              "invoice": "date printed on the invoice"}
     pickup_src = Source(pickup.fact, 3, f"pickup date from the {words.get(pickup.source, pickup.source)}") \
         if pickup.fact else None
-    ctx = _Ctx(terms, contract, on, weight, lane, currency, related_awbs(view, awb), sp)
+    ctx = _Ctx(terms, contract, on, weight, lane, currency, related_awbs(view, awb), sp, ov)
     for lp in [x for x in lps if x.code == FREIGHT]:
         ctx.freight(lp)
     seen: set[str] = set()
@@ -353,6 +360,7 @@ class _Ctx:
     currency: str | None
     awbs: list[str]
     sp: ShipmentPricing
+    ov: dict = field(default_factory=dict)     # the case reviewer's what-if inputs (price_shipment)
 
     def _currency_ok(self, lp: LinePrice, cur: str | None) -> bool:
         if cur and self.currency and cur.upper() != self.currency:
@@ -365,10 +373,14 @@ class _Ctx:
         p = lp.line.payload
         lane = lp.line.lane or self.lane
         w = dec(p.get("quantity")) if p.get("unit") == "kg" else self.weight
+        if self.ov.get("weight") is not None:
+            w = self.ov["weight"]
         if lane is None or w is None:
             lp.set("unpriceable", "no lane" if lane is None else "no chargeable weight")
             return
         r = self.terms.rate(self.contract, lane, self.on, weight=w)
+        if self.ov.get("rate") is not None:
+            r = Decided(self.ov["rate"], [], "the rate given by the case reviewer")
         m = self.terms.rate(self.contract, lane, self.on, kind="minimum")
         minimum = m.value if isinstance(m, Decided) and m.value is not None else None
 
@@ -383,10 +395,10 @@ class _Ctx:
             lp.set("unpriceable", "a rate row we couldn't read as a number")
             return
         if isinstance(r, Decided):
-            if not self._currency_ok(lp, r.sources[0].fact.payload.get("currency")):
+            if r.sources and not self._currency_ok(lp, r.sources[0].fact.payload.get("currency")):
                 return
             x, step = amount(r.value)
-            band = r.sources[0].fact.payload.get("band_text")
+            band = r.sources[0].fact.payload.get("band_text") if r.sources else None
             lp.set("priced", f"{r.label}: {r.value} per kg for {lane}" + (f", band {band}" if band else "") +
                    f", on the pickup date {self.on}", x)
             lp.steps.append(step)

@@ -16,8 +16,8 @@ The five checks are run explicitly and kept with their reasons, so every decisio
   4 reversible the action is a dispute, a credit claim or a document request
   5 authority  terms at level 1-2, facts at level 3 or better, the recipient taken from Schedule 1
 plus one of our own, which only autonomous mode feels:
-  6 review     the item doesn't rest on the case reviewer's reading (nova/review), and the reviewer didn't
-               disagree with it with a checked quote; either way a person approves it before it goes out
+  6 review     the case reviewer (nova/review) didn't send the item to a person
+After this, nova/review/route.py keeps our own holds inside the escalation budget and builds the human review queue.
 Recipients only ever come from Schedule 1: the carrier's billing-disputes contact (else its Key Account Manager) for
 disputes and claims, the holder for a document request. Never an address from an email body.
 """
@@ -142,11 +142,9 @@ def _conflict(v: Verdict, conflicts: list[Verdict]) -> tuple[bool, str]:
 
 def _review(v: Verdict) -> tuple[bool, str]:
     r = v.checks.get("review") or {}
-    if r.get("upgraded"):
-        return False, "found by the case reviewer: a person approves it before anything goes out"
-    if r.get("held"):
-        return False, "the case reviewer disagrees, with a checked quote: held for a person"
-    return True, "nothing from the case reviewer holds it"
+    if r.get("person"):
+        return False, f"the case reviewer sends it to a person ({str(r['person']).replace('_', ' ')})"
+    return True, "the case reviewer didn't send it to a person"
 
 
 def _authority(v: Verdict, recipient: dict | None) -> tuple[bool, str]:
