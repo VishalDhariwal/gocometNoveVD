@@ -13,17 +13,17 @@ from decimal import Decimal
 from ..knowledge.pricing import price_invoice
 from ..knowledge.terms import Terms
 from ..knowledge.view import View, day
-from . import cashback, duplicate, expiry, late_fees, overcharge, waiver
+from . import cashback, duplicate, expiry, late_fees, learn, overcharge, waiver
 from .common import ZERO, Claims, Verdict, invoice_headers
 
 log = logging.getLogger(__name__)
 
 
-def adjudicate(view: View) -> list[Verdict]:
+def adjudicate(view: View, terms: Terms | None = None) -> list[Verdict]:
     if view.as_of_date is None:   # no date given: as of the newest document we hold
         newest = max((d.received_at for d in view.docs.values()), default=None)
         view.as_of_date = day(newest)
-    terms = Terms(view)
+    terms = terms or Terms(view)
     claims = Claims()
     headers = invoice_headers(view)
     priced = {inv_id: price_invoice(terms, h) for inv_id, h in headers.items()}
@@ -33,13 +33,13 @@ def adjudicate(view: View) -> list[Verdict]:
     out += waiver.detect(terms, claims, headers)
     out += late_fees.not_owed(terms, claims, headers)
     out += overcharge.detect(terms, claims, priced)
+    out = learn.apply(terms, out)    # closed / rejected / overridden keys, before disputes feed the late-fee risk
     disputed: dict[str, Decimal] = defaultdict(lambda: ZERO)
     for v in out:
         if v.verdict == "finding" and v.remedy == "dispute" and v.amount_native is not None:
             disputed[v.key["invoice_id"]] += v.amount_native
     out += late_fees.risks(terms, headers, disputed)
-    out += cashback.detect(terms, headers)
-    out += expiry.detect(terms)
+    out += learn.apply(terms, cashback.detect(terms, headers) + expiry.detect(terms))
 
     seen: dict[str, Verdict] = {}
     for v in out:

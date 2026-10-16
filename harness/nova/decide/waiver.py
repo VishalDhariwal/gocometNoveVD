@@ -15,6 +15,7 @@ from collections import defaultdict
 from decimal import Decimal
 
 from .. import normalize as norm
+from ..knowledge.authority import Authorities, Authority
 from ..knowledge.terms import Source, Terms
 from ..knowledge.view import day
 from .common import ZERO, Claims, Verdict, amount_of, contract_of, invoice_date, ledger, lines_of, to_usd
@@ -52,7 +53,22 @@ def detect(terms: Terms, claims: Claims, headers: dict) -> list[Verdict]:
                 continue
             if p.get("from_quoted_text") and any(_same_waiver(a, w) for a in authored):
                 continue   # we hold the original: it decides on its own
-            hits[h.invoice_id].append((w, f, contract))
+            hits[h.invoice_id].append((w, f, contract, None))
+    for inv_id in headers:   # a person approved a waiver for named months on this one key (and no other)
+        for it in terms.feedback.for_key(f"waived_but_billed|{inv_id}"):
+            fact = it.get("fact") or {}
+            if it.get("decision") != "one_off_approval" or fact.get("type") != "waiver_scope":
+                continue
+            person = (fact.get("subject") or {}).get("person")
+            months = set((fact.get("value") or {}).get("months") or [])
+            theirs = [w for w in view.kind("waiver") if _from_person(terms, w, person)]
+            for h, f, code, contract in billed:
+                if h.invoice_id != inv_id or _month(f, h) not in months:
+                    continue
+                w = next((w for w in theirs if code in {terms.charge_code(contract, c)
+                                                        for c in w.payload.get("charges") or []}), None)
+                if w is not None:
+                    hits[inv_id].append((w, f, contract, it["item_id"]))
     out = []
     for inv_id, found in sorted(hits.items()):
         v = _judge(terms, headers[inv_id], found)
@@ -60,6 +76,14 @@ def detect(terms: Terms, claims: Claims, headers: dict) -> list[Verdict]:
             claims.claim("waived_but_billed", v.lines)
         out.append(v)
     return out
+
+
+def _from_person(terms: Terms, w, person: str | None) -> bool:
+    if not person:
+        return False
+    names = [terms.view.sender(w)[1], w.payload.get("original_sender")]
+    names += [p.payload.get("name") for p in terms.view.get("schedule1_person", person_email=w.person_email)]
+    return any(Authorities.name_matches(person, n) for n in names)
 
 
 def _same_waiver(a, quoted) -> bool:
@@ -91,7 +115,13 @@ def _judge(terms: Terms, header, found: list) -> Verdict:
     v = Verdict("waived_but_billed", {"invoice_id": header.invoice_id}, "no_finding", contract=contract,
                 currency=header.payload.get("currency"))
     waived, quoted, reasons = {}, [], []
-    for w, f, _ in found:
+    for w, f, _, approved in found:
+        if approved:
+            waived.setdefault(f.id, (w, f, Authority(2, f"feedback {approved} approves this waiver for this invoice",
+                                                     feedback_item=approved)))
+    for w, f, _, approved in found:
+        if approved or f.id in waived:
+            continue
         if w.payload.get("from_quoted_text"):
             quoted.append((w, f))
             continue
@@ -105,7 +135,7 @@ def _judge(terms: Terms, header, found: list) -> Verdict:
             continue
         waived.setdefault(f.id, (w, f, auth))
     v.steps += reasons
-    if quoted:
+    if quoted and not waived:
         w, f = quoted[0]
         holder = _original_holder(terms, contract, w)
         name = f"original email from {w.payload.get('original_sender') or w.person_email}"
@@ -126,6 +156,9 @@ def _judge(terms: Terms, header, found: list) -> Verdict:
     v.amount_native, v.amount_usd = native, usd
     v.lines = sorted(waived)
     for w, f, auth in waived.values():
+        who = terms.view.sender(w)[1] or w.person_email
+        v.steps.append(f"{f.payload.get('label')} on {f.awb or f.payload.get('period') or 'the invoice'}: "
+                       f"{amount_of(f)} billed, waived by {who} on {str(w.known_at)[:10]} ({auth.why})")
         v.cite(Source(w, auth.level, "the waiver"), auth.person and Source(auth.person, 1, "Schedule 1"),
                Source(f, 3, "the billed line"))
         v.learn(auth.feedback_item)

@@ -49,11 +49,19 @@ class Feedback:
         return sorted(out, key=lambda it: (it["decided_at"], it["id"]), reverse=True)
 
     def grant(self, *, contract: str, person: str | None, category: str, on: date | None) -> dict | None:
-        """A confirmed sender_authority for this person, contract and category, in force on `on`."""
+        """A confirmed sender_authority for this person, contract and category, in force on `on`. When the decision
+        lists categories, the category must be one of them, whatever applies_to says."""
         for it in self.standing("sender_authority", on, contract_id=contract, person=person, category=category):
-            if it.get("decision") == "confirm":
+            if it.get("decision") != "confirm":
+                continue
+            listed = [str(c).strip().lower() for c in ((it.get("fact") or {}).get("value") or {}).get("categories") or []]
+            if not listed or category in listed:
                 return it
         return None
+
+    def for_key(self, finding_key: str) -> list[dict]:
+        """Every decision about one finding key, oldest first. A one-off decision never reaches any other key."""
+        return [it for it in self.items if it.get("finding_key") == finding_key]
 
     def accepted_rates(self, contract: str, lane: str, on: date) -> list[dict]:
         return [it for it in self.standing("rate_accepted", on, contract_id=contract, lane=lane)

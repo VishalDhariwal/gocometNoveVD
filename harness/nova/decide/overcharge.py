@@ -16,6 +16,10 @@ from ..knowledge.terms import Missing, Terms
 from .common import ZERO, Claims, Verdict, invoice_date, missing_doc, to_usd
 
 
+PICKUP_WORDS = {"tracking": "tracking export", "status_email": "carrier's status email", "awb": "air waybill",
+                "invoice": "date printed on the invoice"}
+
+
 def _range(ip: InvoicePricing, free: set[int]) -> tuple[Decimal, Decimal]:
     lo = hi = sum((lp.over() for lp in ip.other if lp.line.id in free), ZERO) + (ip.tax.over() if ip.tax else ZERO)
     for s in ip.shipments:
@@ -57,7 +61,9 @@ def _verdict(terms: Terms, ip: InvoicePricing, lines: list[LinePrice], free: set
     missing = [lp for lp in lines if lp.status == "missing" and lp.missing]
     conflicts = [lp for lp in lines if lp.status == "conflict"]
     lo, hi = _range(ip, free)
-    v.steps.append(f"billed above correct: {lo}" + (f" to {hi}" if hi != lo else "") + f" {ip.currency or ''}".rstrip())
+    total = (f"Total billed above the contract price: {lo}" + (f" to {hi}" if hi != lo else "") +
+             f" {ip.currency or ''}").rstrip()
+    conversion = None
     for lp in lines:
         v.learn(*lp.feedback)
 
@@ -87,7 +93,7 @@ def _verdict(terms: Terms, ip: InvoicePricing, lines: list[LinePrice], free: set
         return v
     usd_lo, _ = to_usd(terms, ip.contract, ip.currency, lo, on)
     if fx is not None:
-        v.steps.append(f"converted at {fx.value} {ip.currency} per USD ({fx.label})")
+        conversion = f"Converted once at {fx.value} {ip.currency} per USD ({fx.label}, the month of the invoice date)"
 
     for lp in over:
         for s in lp.sources:
@@ -100,15 +106,37 @@ def _verdict(terms: Terms, ip: InvoicePricing, lines: list[LinePrice], free: set
         pickup_sources=sorted({by_line[lp.line.id].pickup.source or "none" for lp in over if lp.line.id in by_line}),
         lanes=sorted({lp.line.lane for lp in over if lp.line.lane}),
         term_levels=sorted({s.level for lp in over for s in lp.sources[1:]}),
+        priced=[{"lane": lp.line.lane, "code": lp.code,
+                 "pickup": str(by_line[lp.line.id].pickup.date) if lp.line.id in by_line else None} for lp in over],
         fx=fx.sources[0] if fx is not None else None)
     for lp in over:
-        v.steps += [f"{lp.code} {lp.line.payload.get('label')}: billed {lp.billed}, {lp.why}"] + lp.steps
+        target = (" or ".join(f"{x} under {k}" for k, x in lp.options.items()) if lp.status == "conflict"
+                  else str(lp.expected))
+        v.steps.append(f"{lp.line.payload.get('label')} ({lp.code}) on {lp.line.awb or 'the invoice'}: billed "
+                       f"{lp.billed}, should be {target}. {lp.why}")
+        v.steps += lp.steps
+    for sh in {id(sh): sh for lp in over if (sh := by_line.get(lp.line.id)) is not None}.values():
+        if sh.pickup.date:
+            v.steps.append(f"Pickup date of {sh.awb}: {sh.pickup.date}, from the "
+                           f"{PICKUP_WORDS.get(sh.pickup.source, sh.pickup.source)}")
+        v.steps += sh.notes
+    v.steps.append(total)
+    if conversion:
+        v.steps.append(conversion)
 
     if conflicts and lo != hi:
         c = next(s.conflict for s in ip.shipments if s.conflict is not None)
         v.verdict, v.remedy, v.why = "conflict", "escalate", c.why
         v.amount_range = (max(usd_lo, ZERO), usd_hi)
         v.cite(*c.sources)
+        windows = []
+        for lp in conflicts:
+            facts = [s.fact for opt in c.options for s in opt.sources]
+            starts = [f.valid_from for f in facts if f.valid_from]
+            ends = [f.valid_to for f in facts if f.valid_to]
+            windows.append({"lane": lp.line.lane, "from": max(starts) if starts else None,
+                            "to": min(ends) if ends else None})
+        v.checks["conflict_windows"] = windows
         return v
     v.verdict, v.remedy, v.why = "finding", "dispute", "billed above the contract price"
     v.amount_native, v.amount_usd = hi, usd_hi

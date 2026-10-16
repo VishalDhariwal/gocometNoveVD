@@ -317,7 +317,10 @@ def price_shipment(terms: Terms, contract: str | None, awb: str | None, lines: l
     if contract is None or on is None:
         return sp
 
-    pickup_src = Source(pickup.fact, 3, f"pickup date from the {pickup.source}") if pickup.fact else None
+    words = {"tracking": "tracking export", "status_email": "carrier's status email", "awb": "air waybill",
+             "invoice": "date printed on the invoice"}
+    pickup_src = Source(pickup.fact, 3, f"pickup date from the {words.get(pickup.source, pickup.source)}") \
+        if pickup.fact else None
     ctx = _Ctx(terms, contract, on, weight, lane, currency, related_awbs(view, awb), sp)
     for lp in [x for x in lps if x.code == FREIGHT]:
         ctx.freight(lp)
@@ -383,7 +386,9 @@ class _Ctx:
             if not self._currency_ok(lp, r.sources[0].fact.payload.get("currency")):
                 return
             x, step = amount(r.value)
-            lp.set("priced", f"{r.label} rate {r.value} for {lane} on {self.on}", x)
+            band = r.sources[0].fact.payload.get("band_text")
+            lp.set("priced", f"{r.label}: {r.value} per kg for {lane}" + (f", band {band}" if band else "") +
+                   f", on the pickup date {self.on}", x)
             lp.steps.append(step)
             for s in r.sources + (m.sources if minimum is not None and x == minimum else []):
                 lp.cite(s)

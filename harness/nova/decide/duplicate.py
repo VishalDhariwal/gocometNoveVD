@@ -93,7 +93,7 @@ def _resend(terms: Terms, first, resend) -> Verdict | None:
     v.lines = [f.id for f in lines_of(view, resend)]
     v.cite(Source(resend, 3, "the copy sent again"), *(Source(r, 3, "asks for payment") for r in asks[:1]),
            Source(paid[-1], 3, "the register shows it paid"), Source(first, 3, "the first copy"))
-    v.steps.append(f"first copy {first.doc_ref}, register: {paid[-1].payload.get('status')} "
+    v.steps.append(f"First copy {first.doc_ref}; the payment register shows it {paid[-1].payload.get('status')} "
                    f"{paid[-1].payload.get('paid_date') or ''}; sent again {resend.doc_ref} asking for payment")
     v.checks.update(fx=fx.sources[0] if fx is not None else None)
     return v
@@ -158,7 +158,11 @@ def _repeated(terms: Terms, header, found: list) -> Verdict:
                 if ln.get("awb") and any(ln.get("awb") in (f.awb, f.payload.get("awb")) for f, *_ in keep):
                     credit += Decimal(str(ln.get("amount") or 0)).copy_abs()
     native = max(ZERO, overlap - credit)
-    v.steps.append(f"repeated lines {overlap}" + (f", less credit {credit}" if credit else "") + f" = {native}")
+    for f, code, orig_h, orig_f in keep:
+        v.steps.append(f"{f.payload.get('label')} ({code}) on {f.awb or f.payload.get('period')}: {amount_of(f)}, "
+                       f"already billed on {orig_h.invoice_id} as '{orig_f.payload.get('label')}' "
+                       f"({amount_of(orig_f)}), same waybill, charge code and amount")
+    v.steps.append(f"Billed twice: {overlap}" + (f", less credit notes {credit}" if credit else "") + f" = {native}")
     if native <= 0:
         v.why = "the repeated charges were credited"
         return v

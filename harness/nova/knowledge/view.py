@@ -88,6 +88,10 @@ class View:
         links = {"label_code": dict(store.links("label_code", as_of=as_of))}
         return cls(as_of, store.facts(as_of=as_of), docs, store.feedback_items(as_of=as_of), links)
 
+    def without_feedback(self) -> "View":
+        """The same documents with no human decisions: what we'd say if nobody had given feedback."""
+        return View(self.as_of, self.facts, self.docs, [], self.links)
+
     # ---- lookups ----------------------------------------------------------------------------------------------
     def kind(self, kind: str) -> list[Fact]:
         return self._by_kind.get(kind, [])

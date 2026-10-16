@@ -164,6 +164,7 @@ def _rebates(terms: Terms, contract: str, spend: Spend) -> list[Verdict]:
             out.append(v)
             continue
         rate = max((r for t, r in tiers if qs >= t), default=None)
+        v.checks["tier_gap"] = min((abs(qs - t) / t for t, _ in tiers if t), default=None)
         v.steps.append(f"QS {q} = {qs} from {len(used)} invoice(s); tier rate {rate}")
         v.cite(rule.sources[0], spend.rule.sources[0] if spend.rule else None,
                *(Source(h, 3, "invoice in the quarter") for h, _ in sorted(used, key=lambda x: -x[1])[:3]))

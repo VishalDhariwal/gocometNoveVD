@@ -131,8 +131,9 @@ class Gateway:
         """
         if not models:
             raise LLMUnavailable("no models configured")
+        # The endpoint is part of the key: answers from a stand-in (tools/llm_proxy.py) are never served to a real run.
         key = fingerprint({"purpose": purpose, "version": version, "models": list(models), "system": system,
-                           "content": content, "tool": tool})
+                           "content": content, "tool": tool, "endpoint": os.environ.get("ANTHROPIC_BASE_URL") or ""})
         if self.cache is not None:
             hit = self.cache.get(key)
             if hit and not _schema_errors(hit.get("data"), tool):

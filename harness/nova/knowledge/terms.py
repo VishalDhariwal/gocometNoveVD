@@ -126,6 +126,8 @@ def _describe(src: Source) -> str:
     inst = p.get("instrument")
     if inst == "rate_notice":
         return f"rate notice {p.get('instrument_ref') or ''} ({src.fact.doc_ref})".replace("  ", " ")
+    if inst == "msa":
+        return f"MSA {p.get('instrument_ref') or ''} Annex A".replace("  ", " ")
     return f"{inst} {p.get('instrument_ref') or ''}".strip()
 
 
