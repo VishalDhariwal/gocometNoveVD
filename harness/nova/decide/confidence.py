@@ -41,6 +41,13 @@ def score(terms: Terms, v: Verdict, dropped: int = 0, kept: int | None = None) -
         logit -= 0.5                     # spend within 2% of a rebate tier: one misread line flips it
     if v.feedback:
         logit += 0.2                     # a person confirmed part of the reasoning
+    review = v.checks.get("review") or {}
+    if review.get("upgraded"):
+        logit -= 0.8                     # rests on the case reviewer's reading, though code checked it
+    if review.get("held"):
+        logit -= 1.2                     # a second reader disagrees, with a checked quote
+    if review.get("agreed"):
+        logit += 0.2                     # a second reader went through the documents and agrees
     return round(min(0.98, max(0.05, 1 / (1 + math.exp(-logit)))), 2)
 
 

@@ -52,9 +52,9 @@ def ingest(batch_dir: str, state_dir: str) -> int:
     return 0
 
 
-def report(as_of: str, mode: str, state_dir: str) -> dict:
+def report(as_of: str, mode: str, state_dir: str, gateway: Gateway | None = None) -> dict:
     """Never raises: if anything goes wrong, the error is logged and an empty, valid report is returned, because
-    a report that parses scores more than a crash."""
+    a report that parses scores more than a crash. The only API calls here are the case reviewer's (nova/review)."""
     from .report.build import build_report, empty_report, schema_errors
 
     _logging()
@@ -66,8 +66,9 @@ def report(as_of: str, mode: str, state_dir: str) -> dict:
     with store:
         run_id = store.begin_run("report", {"as_of": as_of, "mode": mode})
         report_id = store.begin_report(as_of, mode)
+        gateway = gateway or Gateway(store.cache)     # the case reviewer's only door to Claude
         try:
-            rep = build_report(store, as_of, mode, report_id)
+            rep = build_report(store, as_of, mode, report_id, gateway=gateway)
             problems = schema_errors(rep)
             if problems:
                 raise ValueError(f"the report doesn't match the schema: {problems[0]}")
@@ -75,10 +76,12 @@ def report(as_of: str, mode: str, state_dir: str) -> dict:
             log.exception("report failed; printing an empty report instead")
             rep = empty_report(as_of, mode)
             store.finish_report(report_id, rep, status="failed")
-            store.finish_run(run_id, "failed", error=f"{type(e).__name__}: {e}")
+            store.finish_run(run_id, "failed", error=f"{type(e).__name__}: {e}", api_calls=gateway.api_calls,
+                             input_tokens=gateway.input_tokens, output_tokens=gateway.output_tokens)
             return rep
         store.finish_report(report_id, rep)
-        store.finish_run(run_id, "ok")
+        store.finish_run(run_id, "ok", api_calls=gateway.api_calls, input_tokens=gateway.input_tokens,
+                         output_tokens=gateway.output_tokens)
         return rep
 
 

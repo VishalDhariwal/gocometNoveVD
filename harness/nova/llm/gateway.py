@@ -9,7 +9,9 @@ Every call needs the same four things, so they live here once:
 - errors that tell the caller what happened instead of crashing it: LLMUnavailable (no API access at all) or
   LLMFailed (this one request didn't produce a valid answer).
 
-The gateway only reads documents. It never decides anything and never sees the report.
+`call_tool` is one forced answer (the readers). `step` is one turn of a tool-using conversation (the case reviewer,
+nova/review), cached by the conversation so far. The gateway itself decides nothing: every answer comes back in a
+fixed shape that code checks.
 """
 from __future__ import annotations
 
@@ -47,6 +49,31 @@ class ToolResult:
     input_tokens: int = 0
     output_tokens: int = 0
     cached: bool = False
+
+
+@dataclass
+class StepResult:
+    content: list[dict]       # the model's blocks as plain dicts: {"type": "text", ...} / {"type": "tool_use", ...}
+    stop_reason: str
+    model: str
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cached: bool = False
+
+    @property
+    def calls(self) -> list[dict]:
+        return [b for b in self.content if b.get("type") == "tool_use"]
+
+
+def _plain_block(b: Any) -> dict | None:
+    kind = b.get("type") if isinstance(b, dict) else getattr(b, "type", None)
+    get = (lambda k: b.get(k)) if isinstance(b, dict) else (lambda k: getattr(b, k, None))
+    if kind == "text":
+        return {"type": "text", "text": get("text") or ""}
+    if kind == "tool_use":
+        data = get("input")
+        return {"type": "tool_use", "id": get("id"), "name": get("name"), "input": data if isinstance(data, dict) else {}}
+    return None   # thinking and anything else isn't replayed
 
 
 class Cache(Protocol):
@@ -152,23 +179,68 @@ class Gateway:
             return result
         raise LLMUnavailable("no model in the chain is available: " + "; ".join(refused))
 
+    def _send(self, model: str, **kw: Any) -> Any:
+        try:
+            return self.client.messages.create(model=model, **kw)
+        except anthropic.AuthenticationError as e:
+            raise LLMUnavailable(f"credentials rejected: {e}") from e
+        except LLMUnavailable:
+            raise
+        except Exception as e:  # noqa: BLE001 - classified below; the SDK already retried transient errors
+            if _model_refused(e):
+                raise _ModelRefused(str(e)) from e
+            raise LLMFailed(f"{model}: {type(e).__name__}: {e}") from e
+
+    def step(self, *, purpose: str, version: str, models: Sequence[str], system: str, messages: list[dict],
+             tools: list[dict], max_tokens: int = 4096) -> StepResult:
+        """One turn of a conversation in which the model must call at least one of `tools`. An agent loop calls this
+        again with the tool results added. Cached by the whole conversation so far, so a re-run on the same evidence
+        replays exactly the same turns and reaches exactly the same answer."""
+        if not models:
+            raise LLMUnavailable("no models configured")
+        key = fingerprint({"purpose": purpose, "version": version, "models": list(models), "system": system,
+                           "messages": messages, "tools": tools,
+                           "endpoint": os.environ.get("ANTHROPIC_BASE_URL") or ""})
+        if self.cache is not None:
+            hit = self.cache.get(key)
+            if hit and (hit.get("data") or {}).get("content"):
+                d = hit["data"]
+                return StepResult(d["content"], d.get("stop_reason") or "tool_use", hit["model"],
+                                  hit.get("input_tokens", 0), hit.get("output_tokens", 0), cached=True)
+        refused: list[str] = []
+        for model in models:
+            budget, used_in, used_out = max_tokens, 0, 0
+            try:
+                while True:   # once more with a bigger budget if the answer was cut off
+                    resp = self._send(model, max_tokens=budget, system=system, messages=messages, tools=tools,
+                                      tool_choice={"type": "any"})
+                    usage = getattr(resp, "usage", None)
+                    n_in, n_out = getattr(usage, "input_tokens", 0) or 0, getattr(usage, "output_tokens", 0) or 0
+                    used_in, used_out = used_in + n_in, used_out + n_out
+                    self._count(n_in, n_out)
+                    if resp.stop_reason != "max_tokens" or budget >= MAX_OUTPUT_TOKENS:
+                        break
+                    budget = min(budget * 2, MAX_OUTPUT_TOKENS)
+            except _ModelRefused as e:
+                refused.append(f"{model}: {e}")
+                continue
+            content = [b for b in (_plain_block(x) for x in resp.content) if b is not None]
+            result = StepResult(content, resp.stop_reason, getattr(resp, "model", None) or model, used_in, used_out)
+            if self.cache is not None and result.calls and resp.stop_reason != "max_tokens":
+                self.cache.put(key, {"data": {"content": content, "stop_reason": resp.stop_reason},
+                                     "model": result.model, "input_tokens": used_in, "output_tokens": used_out,
+                                     "purpose": purpose, "version": version})
+            return result
+        raise LLMUnavailable("no model in the chain is available: " + "; ".join(refused))
+
     def _ask(self, model: str, system: str, content: list[dict], tool: dict, max_tokens: int) -> ToolResult:
         messages: list[dict] = [{"role": "user", "content": content}]
         budget = max_tokens
         used_in = used_out = 0
         problem = "no answer"
         for _ in range(3):  # the first try plus up to two fixes: an answer cut off, or one that breaks the schema
-            try:
-                resp = self.client.messages.create(model=model, max_tokens=budget, system=system, messages=messages,
-                                                   tools=[tool], tool_choice={"type": "tool", "name": tool["name"]})
-            except anthropic.AuthenticationError as e:
-                raise LLMUnavailable(f"credentials rejected: {e}") from e
-            except LLMUnavailable:
-                raise
-            except Exception as e:  # noqa: BLE001 - classified below; the SDK already retried transient errors
-                if _model_refused(e):
-                    raise _ModelRefused(str(e)) from e
-                raise LLMFailed(f"{model}: {type(e).__name__}: {e}") from e
+            resp = self._send(model, max_tokens=budget, system=system, messages=messages, tools=[tool],
+                              tool_choice={"type": "tool", "name": tool["name"]})
             usage = getattr(resp, "usage", None)
             n_in, n_out = getattr(usage, "input_tokens", 0) or 0, getattr(usage, "output_tokens", 0) or 0
             used_in, used_out = used_in + n_in, used_out + n_out

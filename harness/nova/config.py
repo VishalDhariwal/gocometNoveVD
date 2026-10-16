@@ -41,3 +41,17 @@ OCR_DPI = 200
 # Per request. The SDK itself retries rate limits, overloads, 5xx and connection errors with backoff.
 LLM_TIMEOUT_S = float(os.environ.get("NOVA_LLM_TIMEOUT", "180"))
 LLM_MAX_RETRIES = 4
+
+# The case reviewer (nova/review): a Claude agent that takes a second look at the cases code finds hard, during
+# `report`. It runs inside the report step's 600 s, so it has its own time budget and a cap on cases; whatever doesn't
+# fit keeps the verdict code gave it.
+REVIEW_MODELS = _list("NOVA_REVIEW_MODELS", ("claude-opus-5-5", "claude-sonnet-5-5"))
+REVIEW_MAX_CASES = int(os.environ.get("NOVA_REVIEW_CASES", "20"))
+REVIEW_BUDGET_S = float(os.environ.get("NOVA_REVIEW_BUDGET", "300"))
+REVIEW_WORKERS = int(os.environ.get("NOVA_REVIEW_WORKERS", "6"))
+REVIEW_MAX_TURNS = 8
+
+
+def review_enabled() -> bool:
+    """Read at call time, so tests can switch the reviewer off (NOVA_REVIEW=off) without reloading this module."""
+    return os.environ.get("NOVA_REVIEW", "on").strip().lower() not in ("0", "off", "false", "no")

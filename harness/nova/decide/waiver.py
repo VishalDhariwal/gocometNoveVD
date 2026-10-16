@@ -115,6 +115,7 @@ def _judge(terms: Terms, header, found: list) -> Verdict:
     v = Verdict("waived_but_billed", {"invoice_id": header.invoice_id}, "no_finding", contract=contract,
                 currency=header.payload.get("currency"))
     waived, quoted, reasons = {}, [], []
+    unchecked: dict[int, tuple] = {}     # waiver id -> (waiver, [lines]) whose condition is in words we can't check
     for w, f, _, approved in found:
         if approved:
             waived.setdefault(f.id, (w, f, Authority(2, f"feedback {approved} approves this waiver for this invoice",
@@ -132,10 +133,22 @@ def _judge(terms: Terms, header, found: list) -> Verdict:
         met, why = _condition(view, w, header.invoice_id)
         if not met:
             reasons.append(f"waiver in {w.doc_ref}: {why}")
+            if met is None:
+                unchecked.setdefault(w.id, (w, []))[1].append(f.id)
             continue
         waived.setdefault(f.id, (w, f, auth))
     v.steps += reasons
+    # open questions for the case reviewer (nova/review): judgement code can't make, on lines nothing else covers
+    for w, line_ids in unchecked.values():
+        open_lines = [i for i in line_ids if i not in waived]
+        if open_lines:
+            v.checks.setdefault("open", []).append({"reason": "waiver_condition", "waiver": w.id, "lines": open_lines})
     if quoted and not waived:
+        by_waiver: dict[int, list[int]] = {}
+        for w, f in quoted:
+            by_waiver.setdefault(w.id, []).append(f.id)
+        v.checks.setdefault("open", []).extend({"reason": "quoted_waiver", "waiver": wid, "lines": lines}
+                                               for wid, lines in by_waiver.items())
         w, f = quoted[0]
         holder = _original_holder(terms, contract, w)
         name = f"original email from {w.payload.get('original_sender') or w.person_email}"

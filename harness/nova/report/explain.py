@@ -26,6 +26,7 @@ ROLES = {
     "dg_declaration": "dangerous goods declaration", "customs_notice": "customs notice",
     "ledger_entry": "payment register", "waiver": "waiver", "due_date_extension": "due date extension",
     "payment_request": "request for payment", "contract_notice": "extension notice",
+    "review_citation": "quoted by the case reviewer",
 }
 
 
@@ -81,6 +82,22 @@ def headline(v: Verdict) -> str:
     return v.why
 
 
+def review_lines(v: Verdict) -> list[str]:
+    """What the case reviewer (nova/review) said, already stripped of addresses, links and numbers it could have
+    copied from a planted email."""
+    r = v.checks.get("review") or {}
+    said = "; ".join(r.get("reasons") or [])
+    if r.get("upgraded"):
+        return ["Found on a second reading of the documents by the case reviewer, then checked by code (the quotes, "
+                "the sender's authority, the lines and the amount). A person approves it before anything is sent."
+                + (f" The reviewer's reasons: {said}" if said else "")]
+    if r.get("held"):
+        return [f"Held for a person: the case reviewer disagrees, with a quote code checked. Its reasons: {said}"]
+    if r.get("agreed"):
+        return ["A second reading of the documents by the case reviewer agrees."]
+    return []
+
+
 def explanation(v: Verdict) -> list[str]:
     out, seen = [headline(v)], set()
     for step in v.steps:
@@ -91,4 +108,4 @@ def explanation(v: Verdict) -> list[str]:
         if len(out) > MAX_STEPS:
             out.append("(more working in the audit trail)")
             break
-    return out
+    return out + review_lines(v)

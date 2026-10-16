@@ -1,7 +1,8 @@
 """Builds the report for one as_of date and mode, and checks it against the grader's schema before it's printed.
 
-verdicts (decide/adjudicate) -> citations re-checked (report/evidence) -> action gate (decide/policy) -> confidence
--> items with stable ids, supersedes and retro -> schema check -> items recorded for the next report -> drafts.
+verdicts (decide/adjudicate) -> citations re-checked (report/evidence) -> action gate (decide/policy) -> the case
+reviewer's second look at the hard cases (nova/review), then citations and gate again -> confidence -> items with
+stable ids, supersedes and retro -> schema check -> items recorded for the next report -> drafts.
 
 - Only finding, conflict and cannot_determine are printed; no_finding stays in the audit (the grader treats an
   absent key and a no_finding the same, and fewer items means less noise for a person).
@@ -30,6 +31,7 @@ from ..decide.common import Verdict, invoice_headers
 from ..jsonx import loads
 from ..knowledge.terms import Terms
 from ..knowledge.view import View, day
+from ..review import review
 from ..store import Store
 from .evidence import Citations, norm as norm_text
 from .explain import explanation, role
@@ -137,7 +139,7 @@ def _citations(checker: Citations, v: Verdict) -> tuple[list[dict], int, int]:
     return kept, good, dropped
 
 
-def build_report(store: Store, as_of: str, mode: str, report_id: int) -> dict:
+def build_report(store: Store, as_of: str, mode: str, report_id: int, gateway=None) -> dict:
     view = View.load(store, as_of)
     terms = Terms(view)
     verdicts = adjudicate(view, terms)
@@ -145,6 +147,13 @@ def build_report(store: Store, as_of: str, mode: str, report_id: int) -> dict:
     cites = {v.finding_key: _citations(checker, v) for v in verdicts if v.verdict in PRESENT}
     cited = {k: c[1] for k, c in cites.items()}
     gates = policy.decide(terms, verdicts, mode, cited)
+    if gateway is not None:
+        reviewed = review(store, gateway, terms, verdicts, mode=mode, gates=gates, report_id=report_id)
+        if reviewed is not verdicts:
+            verdicts = reviewed
+            cites = {v.finding_key: _citations(checker, v) for v in verdicts if v.verdict in PRESENT}
+            cited = {k: c[1] for k, c in cites.items()}
+            gates = policy.decide(terms, verdicts, mode, cited)
     base, base_gates = {}, {}
     if view.feedback:   # the same report with nobody's feedback, to tell what feedback changed
         plain = view.without_feedback()

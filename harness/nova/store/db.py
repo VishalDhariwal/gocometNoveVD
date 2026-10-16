@@ -1,4 +1,5 @@
-"""The state store: one SQLite file per state folder, <state-dir>/nova.db. The schema is in schema_v1.sql.
+"""The state store: one SQLite file per state folder, <state-dir>/nova.db. The schema is in schema_v1.sql, plus
+schema_v2.sql (the case reviewer's audit trail).
 
 Why SQLite: it's in Python's standard library (nothing to install in the grader's container), it's a single file
 inside --state-dir (the only place that survives between grader steps), and its transactions mean a step killed
@@ -35,7 +36,7 @@ log = logging.getLogger(__name__)
 
 DB_NAME = "nova.db"
 # (version, file). Append new files; never edit one that has shipped.
-MIGRATIONS: list[tuple[int, str]] = [(1, "schema_v1.sql")]
+MIGRATIONS: list[tuple[int, str]] = [(1, "schema_v1.sql"), (2, "schema_v2.sql")]
 MIGRATIONS_LATEST = MIGRATIONS[-1][0]
 
 _DOC_FIELDS = {"doc_type", "doc_type_confidence", "status", "error", "is_scan"}
@@ -506,6 +507,15 @@ class Store:
                  norm.email(recipient_email) if recipient_email else None, recipient_name, subject, body, status,
                  norm.utc_now()))
             return cur.rowcount == 1
+
+    def add_review(self, report_id: int, *, finding_key: str, reason: str, opinion: dict | None, outcome: str,
+                   detail: str = "", model: str | None = None, turns: int = 0) -> None:
+        with self.transaction():
+            self.con.execute(
+                "INSERT INTO reviews(report_id, finding_key, reason, opinion, outcome, detail, model, turns, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (report_id, finding_key, reason, None if opinion is None else dumps(opinion), outcome, detail, model,
+                 turns, norm.utc_now()))
 
     # ---- runs -------------------------------------------------------------------------------------------------
     def begin_run(self, command: str, args: dict | None = None) -> int:

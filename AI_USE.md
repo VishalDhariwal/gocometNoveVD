@@ -205,3 +205,384 @@ What it did: built phase 4 with the five decisions as approved.
 - **Waivers:** the reader now records which invoice a payment condition names.
 - **Tools and tests:** an audit command prints every verdict. Tests rebuild all eight worked examples, each with its decoy, plus edge cases (143 tests passing).
 
+**Prompt 22** (2026-10-13 12:20)
+
+```text
+yes - phase 5
+```
+
+What it did: started phase 5 by reading how the grader scores actions, escalation, confidence, citations and its hard gates. The user stopped it partway; no code was written in this step.
+
+**Prompt 23** (2026-10-16 17:07)
+
+```text
+start phase 5
+```
+
+What it did: built phase 5.
+- **Action gate:** draft, execute, human_review, escalate or internal action per item and mode. It runs the five unattended-action checks with their reasons, applies the $5,000 threshold summed per invoice, and blocks autonomous action while a conflict is open on the same lane and period. Recipients come only from Schedule 1.
+- **Confidence:** a hand-set score built from the pickup-date source, extraction quality, lost citations, Claude-mapped labels, weight disagreement and closeness to a rebate tier.
+- **Citation check:** mirrors the grader's quote check; quotes on scanned pages are checked by page number only.
+- **Report writer:** stable ids, versioning with supersedes, retro for backdated documents, learned_at, a recipient field and a schema check. Items are recorded for the next report.
+- **Clerk:** template-only drafts and an idempotent outbox.
+- **Tests:** 156 passing.
+
+**Prompt 24** (2026-10-16 17:32)
+
+```text
+do phase 6
+```
+
+What it did: built phase 6, feedback inside its scope.
+- **Single-key decisions:** close and reject drop that key only; override_amount sets that key's amount.
+- **Authority grants:** a sender_authority grant now also has to list the category.
+- **Waiver approvals:** a one-off waiver approval covers the named months on its own key and nothing else.
+- **Strict learned_at:** every report is also computed with no feedback, and learned_at is attached only where feedback changed the verdict, amount, deadline or action.
+- **Tests:** mirror each feedback kind against a sibling it must not reach (165 passing).
+
+**Prompt 25** (2026-10-16 17:38)
+
+```text
+so now we have to create our own environment using any llm like gemini api key and we willl test with it. the officials will try with the anthropic so create a .py file which do this
+```
+
+What it did: wrote `tools/llm_proxy.py`, a local stand-in for the Anthropic Messages API answered by Gemini, used only for testing. The harness stays unchanged and is pointed at the proxy through ANTHROPIC_BASE_URL, the one switch the grader passes through.
+- **Translation:** the system prompt, text, images and PDFs, the forced tool, the JSON schemas (with a fallback to the older schema form), the repair round, token usage, stop reasons, and error codes so that model fallback and retries behave as they do against Anthropic.
+- **Model mapping:** Opus requests go to a "strong" Gemini model, everything else to a "fast" one.
+- **Rate limiting and retries:** for free-tier keys.
+- **Gateway change:** the gateway's answer cache now keys on the API endpoint, so stand-in answers are never served to a real run.
+- **Tests:** go through the real SDK and gateway against a faked Gemini (174 tests passing).
+
+**Prompt 26** (2026-10-16 18:03)
+
+```text
+Tell me two things. First is confidence. Like, uh, the content should not be a hard-coded value. Like, uh, it is always showing 75 or 90 or 100 or 75, 90, 100. Not like this. And second is, uh, that my doubt is about Uh, and second is how will you provide the actual text or sentence or paragraph like whatever it is asked like like the facts on the basis of which we have divided or participated we have uh, divided or classified the email or the outcome we have provided on what basis how will we do that
+```
+
+What it did: explained how confidence is computed today. It's a formula, not fixed numbers, but its inputs are coarse, so clean items cluster on a few values. It proposed continuous evidence features with calibration on labelled runs. It also explained how evidence is traced: every fact carries the exact quote from its page, and every verdict carries the facts it used, re-checked against the page before printing. It offered to add a reasoning trail to each report item. No code changed.
+
+**Prompt 27** (2026-10-16 18:10)
+
+```text
+first fix for explanation part , we will do for confidence later
+```
+
+What it did: every report item now carries an `explanation` list. The first line is a plain conclusion: what was found, the amount, and for conflicts and missing documents what a person must do and whom to ask. It's followed by the working in order (each billed line against what it should be and why, the arithmetic, the pickup date and its source, the total, any currency conversion). Each evidence entry now carries a `role` (billed line, contract rate, pickup date from tracking, contract clause, authority, register...) and a `detail` saying why it was used. The step text for overcharges, duplicates and waivers was rewritten to read as sentences, and the draft letters use the same working. Confidence is left for later (176 tests passing).
+
+**Prompt 28** (2026-10-16 18:30)
+
+```text
+now tell me what is left
+```
+
+What it did: listed what's left. The live practice run (through the Gemini stand-in or a real key), fixing prompts against real reads, calibrated confidence, our own eval cases and stress tests, the exam answer sheet, the submission check, and the DESIGN / SOLUTION / AI_USE write-ups. No code changed.
+
+
+**Prompt 29** (2026-10-16 19:20)
+
+```text
+I think after collecting all facts , evidence . we should make a llm call to give a report ?  I think after doing money calculations we can use llm. as llm are better in decisions. what u think? we will not do this for all the emails in a batch but for some classs which is very hard to be left to python code only.
+i want your opinion in it. take your time and think about it
+```
+
+What it did: gave an opinion. It agreed there is a real gap: judgements that need several documents read together. It advised against letting Claude pick verdicts, amounts or actions at report time, because of the injection hard gate, answers changing between runs (which breaks supersedes), the rule-based answer key, and the report having to work without the API. Instead it proposed a cross-document judgement step at ingest that asks closed questions, for example: is a waiver's condition met, which shipments does a vague waiver cover, is a quoted waiver the same as an original we hold. Each answer is a fixed choice citing fact ids, checked by code and stored as a fact with its own known_at. It also suggested an optional second opinion that can only hold back an autonomous execute, and letting the live run's abstentions decide which questions to add first. No code changed.
+
+**Prompt 30** (2026-10-16 19:40)
+
+```text
+but why we have to use the same agent we can introduce a new agent which will handle these difficult scenarios because adding it to ingestion layer and giving question whihc python ask has no use as they are hard coded and become vague. for these critical cases we can send the documents if needed and all we have and use claude for better results and which can help us to safe our company money. i want your opinion about hthis think and tell me
+```
+
+What it did: agreed that a separate case-reviewer agent at report time beats hard-coded questions at ingest, since fixed questions only cover cases we foresaw. Proposed this shape:
+- Code picks the hard cases: abstentions with a "can't check" reason, conflicts, $5,000 and over, and unread emails naming our invoices.
+- The agent reads the full documents plus our facts and working. It has tools to find facts, read a page, price a line and check the payment register.
+- It answers in a fixed format: an opinion, the lines affected, its reasons and its citations.
+- Code checks the citations and the authority of each source, rejects anything resting on injected or quoted text, and recomputes the money.
+- Items the agent backs go to a draft or human review, never execute.
+- Results are cached per case and evidence so ids stay stable.
+
+No code changed.
+
+**Prompt 31** (2026-10-16 20:23)
+
+```text
+all good now create a reviewer
+```
+
+What it did: built the case reviewer (`harness/nova/review/`), a separate Claude agent that runs inside `report` for the cases code finds hard.
+
+- **Triage (code) picks the cases:**
+  - a waiver whose condition is in words;
+  - a waiver the reader couldn't pin to a waybill, invoice or month;
+  - a waiver seen only quoted;
+  - billed lines whose label nobody mapped;
+  - an email no reader understood that names one of our invoices;
+  - in autonomous mode, a second look at every dispute about to be executed.
+
+  At most 20 cases, money first, with a 300 s budget.
+- **The agent** reads the original documents with read-only tools (read a document, search the mailbox, find facts, payment register, code's pricing) and answers in a fixed shape with quotes. It never gives amounts, actions or recipients.
+- **Code checks the answer.** Each quote must be on its page and gets its document's authority level. An answer citing text aimed at automated readers is thrown out. Only two upgrades exist, each with a mechanical test:
+  - waived_but_billed: the Schedule 1 waivers contact in their own words, the condition met with a checked record, and the email naming each line's waybill, invoice or month;
+  - duplicate: the same waybill and amount on an earlier invoice, with no credit note touching either.
+
+  Code works out the money.
+- **What rests on the reviewer is never executed:** a draft in supervised mode, human_review in autonomous, with lower confidence. A cited disagreement holds an autonomous execute for a person.
+- **Supporting changes:**
+  - every case is logged in a new `reviews` table (schema v2);
+  - conversations are cached turn by turn, so re-runs are free and ids don't churn;
+  - the Gemini proxy now replays tool turns as real function calls and keeps Gemini 3's thought signatures;
+  - ARCHITECTURE.md has a new M19 section.
+
+194 tests pass, including 15 new ones for the reviewer.
+
+**Prompt 32** (2026-10-16 22:06)
+
+```text
+as an independent invigilator i want you to see these hard coded roles and their potential drwbacks. i wnat to hear from you.
+
+In this architecture, the LLM reads documents into structured facts at ingest, but all monetary decisions, precedence rankings, claim deduplication, confidence scoring, and action gates are hardcoded Python rules.
+
+1. Action Gate & Policy Rules
+File: 
+
+harness/nova/decide/policy.py
+
+$5,000 Financial Threshold:
+THRESHOLD = Decimal("5000.00")
+In supervised mode: amounts $\ge $5,000$ on an invoice or cashback key are diverted to human_review; under $$5,000$ become draft:<remedy>.
+In autonomous mode: amounts $\ge $5,000$ fail the unattended check and force human_review.
+The 5 Unattended Autonomous Execution Checks:
+Evidence Check:
+Repriced lines must take pickup dates strictly from DATED_SOURCES = {"tracking", "status_email"}. Waybill (awb) or invoice-printed dates are hardcoded as insufficient for autonomous execution.
+At least one citation must survive the quote check (n_cited > 0).
+Conflict Check:
+Only checks conflict windows for FREIGHT_CODES = {"FRT", "FUEL"}.
+If an open conflict exists on the same contract, lane, and period, autonomous action is blocked.
+Threshold Check: Outbound total for the invoice or cashback key must be $< $5,000.00$.
+Reversibility Check: Hardcoded to True strictly for dispute, claim_credit, and request_document.
+Authority Check: Contract terms must be Level 1–2 (TERM_KINDS); factual evidence must be Level 3 or better.
+Recipient Selection Rule:
+Outbound dispute/claim emails must only go to Schedule 1 contacts in category billing_disputes or notices (Key Account Manager). Any email address found inside the body of an invoice or email is hard-blocked.
+2. Confidence Scoring Formula & Weights
+File: 
+
+harness/nova/decide/confidence.py
+
+Confidence is computed using a hardcoded logistic regression formula: $$\text{confidence} = \text{round}\left(\min\left(0.98, \max\left(0.05, \frac{1}{1 + e^{-\text{logit}}}\right)\right), 2\right)$$
+
+Base Logits by Finding Class:
+overcharge: +2.4, duplicate: +2.3, waived_but_billed: +2.1, late_fee_not_owed: +2.1, late_fee_risk: +2.2, cashback: +1.7, expiry: +2.8 (default: +2.0).
+Verdict Penalty:
+finding: 0.0, conflict: -0.3, cannot_determine: -0.4.
+Pickup Date Source Penalty:
+tracking: 0.0, status_email: -0.1, awb: -0.5, invoice: -0.9, none: -1.5.
+Fact Verification Penalty:
+verified: 0.0, structured: 0.0, repaired: -0.2, vision: -0.4, unverified: -1.0.
+Hardcoded Heuristic Deductions:
+Any citation dropped during quote verification: -0.6
+Zero citations surviving: -1.5
+Charge label mapped by LLM (not an exact word match in Annex E): -0.5
+Weight discrepancy between invoice and waybill: -0.5
+Line items omitted because they fall outside Annex E: -0.6
+Rebate spend within 2% of a tier threshold (gap < 0.02): -0.5
+Human feedback confirmed part of reasoning: +0.2
+3. Claim Priority & Deduplication Ledger
+Files: 
+
+harness/nova/decide/adjudicate.py
+, 
+
+common.py
+
+Hardcoded Detector Order: $$\text{duplicate} \longrightarrow \text{waiver} \longrightarrow \text{late_fee_not_owed} \longrightarrow \text{overcharge}$$
+Claim Locking: Once a line fact ID is claimed by an earlier detector in Claims, it is marked as taken. Subsequent detectors are strictly prohibited from touching or claiming that line.
+Late Fee Interdependence: late_fees.risks is evaluated after invoice disputes so that disputed amounts on an invoice are deducted from the outstanding principal before calculating fee risk.
+First-Verdict-Wins: If multiple detectors generate verdicts for the exact same finding_key, only the first is retained; subsequent ones are dropped.
+4. Duplicate Billing Rules
+File: 
+
+harness/nova/decide/duplicate.py
+
+Resend Rules:
+Finding is only raised if the payment register shows the first copy was status in ("paid", "scheduled") on or before the arrival date of the resend (paid_date <= arrived).
+The resend must explicitly request payment (asks_for_payment == True).
+If the resend contains copy markers in {"copy", "duplicate", "for_your_records"}, it is suppressed (no_finding).
+Cross-Invoice Line Duplicate Rules:
+Matches line signatures by exact tuple: ("awb", f.awb, code, amount) or ("period", period, code, amount).
+Excludes charges coded as TAX and LATE.
+The invoice with the earlier date is deemed the original; the invoice with the later date carries the duplicate finding.
+Credit Note Logic: If the earlier invoice was credited in full (credits >= total), re-billing is allowed (no_finding). If partially credited, credit is deducted from the duplicate claim amount.
+5. Waiver Rules
+File: 
+
+harness/nova/decide/waiver.py
+
+Authority Check: The email sender must match Schedule 1 for waivers (or have an explicit feedback grant). A waiver from anyone else is ruled no_finding.
+Quoted Waivers: A waiver seen only inside quoted/forwarded text is classified as cannot_determine and triggers an outbound request_document for the original email.
+Condition Checking:
+payment_by_date: Hardcoded check against the ledger. Paid on or before condition_date $\rightarrow$ condition met; paid after $\rightarrow$ condition failed.
+Any other condition text: Hardcoded to abstain (None: "a condition we can't check").
+6. Late Fee Rules
+File: 
+
+harness/nova/decide/late_fees.py
+
+Due Date Precedence Hierarchy: $$\text{Authorized Extension Email (Level 2)} > \text{Payment Register Due Date} > \text{Invoice Printed Due Date} > \text{Contract Payment Term Days}$$
+Dispute Shield: If an invoice is marked as disputed in the payment register, late fees cannot be assessed.
+30-Day Month Conversion: Month lateness is strictly rounded up: $$\text{months_late} = \lceil \text{days_late} / 30 \rceil \quad (\text{if } \text{days_late} > \text{grace_days})$$
+Compounding Formula: $$\text{fee}_i = \text{round_cents}(\text{base} \times \text{rate}); \quad \text{if compounding: } \text{base} \mathrel{+}= \text{fee}_i$$
+Late Fee Risk Window: Triggers only if an unpaid invoice's due date falls between 1 and 14 days after as_of (0 < (due - as_of).days <= 14).
+7. Cashback, Rebate & Margin Rules
+File: 
+
+harness/nova/decide/cashback.py
+
+Closed Quarter Rule: A rebate is only calculated and reported after the quarter has ended (as_of > quarter_end).
+Default Qualifying Spend (QS) Components: If the contract definition is unspecified: DEFAULT_PARTS = ["base_freight", "fuel", "security", "annex_d_accessorials"]
+Hardcoded Charge Code Groupings:
+python
+PART_CODES = {
+    "base_freight": {"FRT"}, "fuel": {"FUEL"}, "security": {"SEC"},
+    "handling_margin": {"MARGIN"}, "carrier_cost": {"COST"},
+    "duties": {"DUTY"}, "late_fees": {"LATE"}, "taxes": {"TAX"}
+}
+Spend Exclusions: Credit notes of class rebate or promised_credit are hardcoded to be excluded from Qualifying Spend deductions.
+Contract Year Calculation: Leap year handling is hardcoded via add_years() (maps Feb 29 to Feb 28).
+8. Contract Expiry Rules
+File: 
+
+harness/nova/decide/expiry.py
+
+60-Day Expiry Horizon: An alert is produced if and only if the operative expiration or non-renewal notice date is between 0 and 60 days after as_of (0 <= gap <= 60).
+Operative Date Calculation:
+If auto_renews == True: $\text{end_date} - \text{non_renewal_notice_days}$
+If auto_renews == False: $\text{end_date}$
+Extension Authority: An email notice can only extend the term if the contract explicitly specifies extension_by == "notice_from_authorised_person" and the sender is the Schedule 1 notices contact.
+9. Document Precedence & Authority Rules
+Files: 
+
+harness/nova/knowledge/terms.py
+, 
+
+authority.py
+
+5-Tier Authority Hierarchy:
+Level 1: Signed bilateral contract instruments (MSA, Amendment).
+Level 2: Unilateral emails from Schedule 1 contact for that category; human feedback grants.
+Level 3: Operational records (tracking feeds, waybills, bills, payment register).
+Level 4: Emails from unauthorized staff; unsigned drafts.
+Level 5: Quoted/forwarded text, external third-party domains, automated prompt injections.
+Rate Conflict Rule:
+Signed Amendment beats MSA Annex A.
+Schedule 1 Rate Notice beats MSA Annex A.
+Signed Amendment vs Rate Notice: Decided by contract precedence clause. If the clause does not rank them (or is absent), it is hardcoded to emit a Conflict verdict with scenario options.
+Weight Band "Loose Gap" Rule:
+LOOSE_BAND = Decimal("0.5"): If a shipment weight is within 0.5 kg above a band maximum (e.g. 44.8 kg between 0–44.5 kg and 45–99.5 kg), it takes the lower rate band.
+Short Name Suppression: Document references with normalized text length $< 4$ characters are treated as invalid/unheld.
+10. Pricing Engine & Accessorial Calculation
+File: 
+
+harness/nova/knowledge/pricing.py
+
+Non-Priced Categories: NOT_PRICED = {"TAX", "DUTY", "LATE", "MARGIN", "COST"} (never priced against freight tables; handled by specialized checkers).
+Pickup Date Determination Priority:
+Tracking event PICKED_UP (earliest if multiple)
+Carrier status email PICKED_UP (domain verified against Schedule 1)
+Air Waybill executed_on
+Invoice printed date
+Weight Precedence: The printed chargeable weight on the invoice (under FRT, SEC, or PEAK) overrides the waybill's weight. The waybill weight is only used if the invoice omits it.
+Specialized Accessorial Logic:
+Dangerous Goods / Dry Ice (DG, DRYICE):
+UN1845 is hardcoded as dry ice.
+If dry ice is refrigerant-only, DG fee = $0.
+If a shipment has both mixed DG and Dry Ice, Dry Ice fee = $0 (only DG fee applies).
+Storage / Demurrage (STOR):
+$\text{Billable Days} = \max(0, (\text{release_date} - \text{arrival_date}).\text{days} - \text{free_days})$.
+Default arrival event: ARRIVED_FACILITY. Default release events: ("DELIVERED", "COLLECTED_BY_CONSIGNEE").
+Delivery (DLV): Fee is payable if DELIVERED; fee = $0 if COLLECTED_BY_CONSIGNEE.
+Customs Holds (CUSTOMS): If caused by carrier_documents, exempt if contract states carrier_error_exempt == True.
+GST / Tax (TAX): Uses ISO country code prefixes from lane strings (e.g., INN3-USC3 $\rightarrow$ IN, US). If contract specifies domestic_only, GST is strictly restricted to origin country == destination country.
+11. Human Feedback Processing Rules
+File: 
+
+harness/nova/decide/learn.py
+
+KEY_DECISIONS = ("close", "reject", "override_amount")
+close or reject immediately drops the verdict.
+override_amount forcibly overrides amount_usd and converts remedy to dispute or claim_credit.
+Strict learned_at Attribution: 
+
+report/build.py:L96-L115
+ computes every report twice (with and without feedback). learned_at is stamped only if the verdict, amount, deadline, or action differed from the zero-feedback run.
+12. Normalization & Format Enums
+Files: 
+
+values.py
+, 
+
+normalize.py
+, 
+
+mail.py
+
+Charge Label Normalization: 
+
+normalize.py:L31
+ strips all punctuation, spaces, and casing (re.sub(r"[^0-9a-z]", "", str(raw).lower())).
+LLM Categorization Enums: Prompts force Claude to select from hardcoded lists:
+EVENTS: ["PICKED_UP", "DEPARTED", "ARRIVED_FACILITY", "OUT_FOR_DELIVERY", "DELIVERED", "COLLECTED_BY_CONSIGNEE", "CUSTOMS_HOLD", "RELEASED", "OTHER"]
+CAUSES: ["carrier_documents", "shipper_or_consignee", "customs_or_other", "not_stated"]
+LEDGER_STATUSES: ["paid", "scheduled", "open", "disputed", "cancelled", "other"]
+COPY_MARKERS: ["copy", "duplicate", "reminder", "for_your_records", "reissued", "pro_forma", "other"]
+Email Splitting Heuristics: Lines starting with >, lines matching On ... wrote:, or blocks matching From: ... Sent: ... To: are hardcoded to be stripped into quoted_text (Level 5 authority).
+13. System Configuration & Engine Constants
+File: 
+
+harness/nova/config.py
+
+INGEST_BUDGET_S = 420.0 (7-minute timeout for ingest loop)
+MAX_READ_ATTEMPTS = 3 (drops failed document after 3 retries)
+LLM_TIMEOUT_S = 180.0
+LLM_MAX_RETRIES = 4
+VISION_MAX_EDGE = 1568
+OCR_DPI = 200
+READER_WORKERS = 8
+```
+
+What it did: reviewed every hard-coded rule as an independent invigilator. It split them into three groups:
+- **Rules that copy the glossary.** These are right for the exam, but they're one customer's policy written as constants.
+- **Our own guesses.** These are where the risk is:
+  - contract-specific accessorial rules (dry ice, mixed DG, collected-not-delivered) applied whatever the contract says;
+  - uncalibrated confidence weights;
+  - exact-amount duplicate matching that leaves out tax;
+  - the fixed 0.5 kg band gap;
+  - expiry extensions that need a contract clause;
+  - an abstention on a whole invoice if the register shows any dispute;
+  - English-only quote splitting;
+  - a conflict gate keyed to freight codes;
+  - unread documents left over after the last batch.
+- **Structural risks.**
+
+It also found a real interaction bug: lines claimed by a duplicate or waiver that feedback later rejects are never offered back to the overcharge check. It suggested an order of fixes. No code changed.
+
+**Prompt 33** (2026-10-16 22:18)
+
+```text
+tell me what and how you will fix
+```
+
+What it did: set out the fix plan for the review's findings in four batches, each with the files to change and the tests to add.
+- **Batch 1, small rule fixes:**
+  - free the lines of a rejected duplicate or waiver for the overcharge check;
+  - accept authorised extension notices when the contract doesn't say how extensions work;
+  - store the charge in conflict windows;
+  - exact match for short document names;
+  - the weight band gap judged by the next band's minimum.
+- **Batch 2, contract clauses read as fixed choices instead of hard-coded:** dangerous goods, dry ice, mixed DG, delivery when collected, the weight band rule, and late fees on disputed amounts. "Not stated" keeps today's convention but can't be executed unattended.
+- **Batch 3, robustness:**
+  - quote splitting for non-English mail clients, plus a check that a waiver's quote is in the sender's own words;
+  - reading leftover documents during `report`;
+  - same-waybill, different-amount duplicates sent to the reviewer.
+- **Batch 4, after the live run:** calibrated confidence.
+
+It also corrected one earlier point: tax stays out of duplicates, because the glossary says the amount is the duplicated lines only. No code changed.
