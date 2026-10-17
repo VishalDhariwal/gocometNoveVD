@@ -4,8 +4,9 @@ Every call needs the same four things, so they live here once:
 
 - a cache keyed by the full request, so a re-run costs nothing and gives exactly the same answer;
 - model fallback, because we don't know which models the grader's key allows;
-- forced structured output (one tool the model must call), validated against the tool's JSON schema, with one repair
-  round when it doesn't match;
+- forced structured output (one tool the model must call), validated against the tool's JSON schema, with repair
+  rounds when it doesn't match, and if those fail, the valid part of the answer kept (salvage.py) rather than the
+  whole answer lost;
 - errors that tell the caller what happened instead of crashing it: LLMUnavailable (no API access at all) or
   LLMFailed (this one request didn't produce a valid answer).
 
@@ -26,6 +27,7 @@ import anthropic
 import jsonschema
 
 from .. import config
+from .salvage import only_filled_lists, salvage
 
 MAX_OUTPUT_TOKENS = 16000
 
@@ -49,6 +51,7 @@ class ToolResult:
     input_tokens: int = 0
     output_tokens: int = 0
     cached: bool = False
+    notes: list = None         # what salvage changed to make the answer fit its schema (None or [] when nothing)
 
 
 @dataclass
@@ -80,6 +83,17 @@ class Cache(Protocol):
     def get(self, key: str) -> dict | None: ...
 
     def put(self, key: str, value: dict) -> None: ...
+
+
+def _says_something(x: Any) -> bool:
+    """Is there any value in this answer: a non-empty string, a number, a yes/no, or a container holding one?"""
+    if isinstance(x, dict):
+        return any(_says_something(v) for v in x.values())
+    if isinstance(x, (list, tuple)):
+        return any(_says_something(v) for v in x)
+    if isinstance(x, str):
+        return bool(x.strip())
+    return x is not None
 
 
 def fingerprint(request: Any) -> str:
@@ -165,7 +179,7 @@ class Gateway:
             hit = self.cache.get(key)
             if hit and not _schema_errors(hit.get("data"), tool):
                 return ToolResult(hit["data"], hit["model"], hit.get("input_tokens", 0), hit.get("output_tokens", 0),
-                                  cached=True)
+                                  cached=True, notes=hit.get("notes") or [])
         refused: list[str] = []
         for model in models:
             try:
@@ -175,7 +189,8 @@ class Gateway:
                 continue
             if self.cache is not None:
                 self.cache.put(key, {"data": result.data, "model": result.model, "input_tokens": result.input_tokens,
-                                     "output_tokens": result.output_tokens, "purpose": purpose, "version": version})
+                                     "output_tokens": result.output_tokens, "purpose": purpose, "version": version,
+                                     "notes": result.notes or []})
             return result
         raise LLMUnavailable("no model in the chain is available: " + "; ".join(refused))
 
@@ -242,6 +257,7 @@ class Gateway:
         budget = max_tokens
         used_in = used_out = 0
         problem = "no answer"
+        kept: tuple[dict, list[str], str] | None = None   # the best salvaged answer so far, if the fixes don't work
         for _ in range(3):  # the first try plus up to two fixes: an answer cut off, or one that breaks the schema
             resp = self._send(model, max_tokens=budget, system=system, messages=messages, tools=[tool],
                               tool_choice={"type": "tool", "name": tool["name"]})
@@ -264,7 +280,14 @@ class Gateway:
             data = call.input if isinstance(call.input, dict) else None
             errors = _schema_errors(data, tool)
             if not errors:
-                return ToolResult(data, getattr(resp, "model", None) or model, used_in, used_out)
+                return ToolResult(data, getattr(resp, "model", None) or model, used_in, used_out, notes=[])
+            fixed, notes = salvage(data, tool["input_schema"])
+            if fixed is not None and only_filled_lists(notes) and _says_something(fixed):
+                # it left out lists the document has nothing for: that's an answer, not a mistake worth a round trip.
+                # An answer with nothing in it at all (a transcription with no lines) is a mistake: ask again
+                return ToolResult(fixed, getattr(resp, "model", None) or model, used_in, used_out, notes=notes)
+            if fixed is not None:
+                kept = (fixed, notes, getattr(resp, "model", None) or model)
             problem = f"the answer didn't match the schema: {errors[0]}"
             messages = messages[:1] + [
                 {"role": "assistant",
@@ -273,4 +296,6 @@ class Gateway:
                  "content": [{"type": "tool_result", "tool_use_id": call.id, "is_error": True,
                               "content": f"{problem}. Call {tool['name']} again with input that matches its schema."}]},
             ]
+        if kept is not None:      # the fixes didn't work: keep the valid part, with every change written down
+            return ToolResult(kept[0], kept[2], used_in, used_out, notes=kept[1])
         raise LLMFailed(f"{model}: {problem}")

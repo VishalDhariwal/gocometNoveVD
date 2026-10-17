@@ -1,0 +1,8 @@
+name: a due date extension from a sender with no payment-terms authority
+mailbox: evals/mailboxes/extension_outsider
+as_of: "2033-02-28"
+mode: supervised
+expect:
+  key: {invoice_id: TX-US-2032-5496, class: late_fee_not_owed}
+  verdict: no_finding
+why: without Ulrich Ellwood's extension (now sent by the ops desk, not on Schedule 1 for payment terms) TX-US-2032-5494 was due 2032-08-10 and paid 2032-08-17, 7 days late, past the 5 days' grace, so the 12.65 late fee is owed

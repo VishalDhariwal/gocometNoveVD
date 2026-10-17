@@ -14,10 +14,11 @@ from .. import config
 from .. import normalize as norm
 from ..llm import Gateway
 from . import values as v
-from .base import (AUTOMATION_FIELD, COMMON_RULES, QUOTE, STR, STR_LIST, DocContext, FactOut, ReadOutcome, call,
-                   ground, injection_facts, tool)
+from .base import (AUTOMATION_FIELD, COMMON_RULES, QUOTE, STR, STR_LIST, SUMMARY_FIELD, SUMMARY_RULE, DocContext,
+                   FactOut, ReadOutcome, call, ground, injection_facts, tool)
+from ..links import find_known
 
-VERSION = "correspondence-v2"
+VERSION = "correspondence-v3"
 
 INTENTS = ["waiver", "due_date_extension", "rate_notice", "status_update", "payment_request", "contract_notice",
            "customs_notice", "query", "cover_note", "other"]
@@ -27,7 +28,7 @@ SYSTEM = COMMON_RULES + """
 This is an email (or a letter) the shipper's accounts-payable team received or sent. Record each thing it says that could change what is billed or owed, as one intent each:
 - waiver: a charge is waived or written off. Copy the charges, waybills (AWBs), invoices and months it names, any condition it sets, and words about its scope ("in full", "this once", "going forward"). condition_kind: none (unconditional), payment_by_date (the waiver holds only if something is paid by a date; put that date in condition_date and the invoice that must be paid in condition_invoice), or other (any other condition; keep its words in condition).
 - due_date_extension: an invoice's due date is moved. Copy the invoice and the new due date.
-- rate_notice: rates change. Copy the agreement number if stated or evident from the notice reference, the reference, the effective dates, and every rate row (lane, band as printed, band_kind per_kg or minimum_charge, band_from and band_to copied from the band, rate, currency).
+- rate_notice: rates change. Copy the agreement number if stated or evident from the notice reference (a reference such as "ABC-01/RN-LANE-2030-01-01" is under agreement ABC-01), the reference, the effective dates, and every rate row (lane, band as printed, band_kind per_kg or minimum_charge, band_from and band_to copied from the band, rate, currency).
 - status_update: a shipment was picked up, delivered, collected, held or released. Copy the waybill, the date and the station; put the words used in event_as_printed and choose event from the event list below by what happened.
 - payment_request: payment of a specific invoice is requested. Copy the invoice, whether payment is asked for, whether it says the invoice is outstanding, and any marker such as copy, duplicate, reminder or "for your records" (as printed in marker, and as marker_kind: none, copy, duplicate, reminder, for_your_records, reissued, pro_forma or other).
 - contract_notice: an agreement is extended, renewed, not renewed or terminated. Copy the agreement, the kind of notice and the dates.
@@ -36,7 +37,7 @@ This is an email (or a letter) the shipper's accounts-payable team received or s
 - cover_note: only says documents are attached.
 Mark in_quoted_text when the words come from quoted or forwarded text rather than the sender's own message, and name who originally wrote them. Each intent's quote must be copied from the email.
 
-""" + v.EVENT_HELP + "\n\n" + v.CAUSE_HELP
+""" + v.EVENT_HELP + "\n\n" + v.CAUSE_HELP + SUMMARY_RULE
 
 INTENT = {"type": "object", "properties": {
     "type": {"enum": INTENTS},
@@ -60,6 +61,7 @@ INTENT = {"type": "object", "properties": {
 TOOL = tool("record_email", "Record what an email or letter says that matters to accounts payable.", {
     "intents": {"type": "array", "items": INTENT},
     "automation_instructions": AUTOMATION_FIELD,
+    "summary": SUMMARY_FIELD,
 }, ["intents", "automation_instructions"])
 
 
@@ -73,7 +75,8 @@ def _prompt(ctx: DocContext) -> tuple[str, str | None]:
                 f"<quoted_or_forwarded>\n{e.get('quoted_text') or ''}\n</quoted_or_forwarded>\n</email>")
         return body, e.get("from_addr")
     sender = (ctx.parent_email or {}).get("from_addr")
-    return (f"(Context: a letter attached to an email from {sender}.)\n" + ctx.document_block()), sender
+    return (f"(Note from the audit system, not part of the document: a letter attached to an email from {sender}.)\n"
+            + ctx.document_block()), sender
 
 
 class CorrespondenceReader:
@@ -85,11 +88,25 @@ class CorrespondenceReader:
         prompt, sender = _prompt(ctx)
         data = call(gateway, out, purpose="correspondence", models=config.READER_MODELS, system=SYSTEM, tool_def=TOOL,
                     content=prompt, max_tokens=6000)
-        out.facts, out.warnings = build(ctx, data, sender)
+        facts, problems = build(ctx, data, sender)
+        out.facts, out.warnings = facts, out.warnings + problems
         kinds = sorted({i.get("type") for i in data.get("intents") or []} - {None})
         out.doc_type = "+".join(kinds) or "email"
         out.status = "partial" if out.warnings else "ok"
         return out
+
+
+def _agreement_in_text(ctx: DocContext, it: dict, problems: list[str]) -> str | None:
+    """The reader left the agreement out: look for one we already hold (contracts are read first) in the intent's
+    own reference and quote, then in the email's subject and text. Used only when exactly one is found."""
+    texts = [it.get("reference"), it.get("quote")]
+    e = ctx.email or ctx.parent_email or {}
+    texts += [e.get("subject"), e.get("authored_text")]
+    found = find_known(" ".join(str(t) for t in texts if t), ctx.known_contracts)
+    if len(found) == 1:
+        problems.append(f"the agreement ({found[0]}) was taken from the email's own words; the reader left it out")
+        return found[0]
+    return None
 
 
 def build(ctx: DocContext, data: dict, sender: str | None) -> tuple[list[FactOut], list[str]]:
@@ -140,7 +157,7 @@ def build(ctx: DocContext, data: dict, sender: str | None) -> tuple[list[FactOut
                                        "new_due_date_printed": it.get("new_due_date")},
                 [it.get("invoice"), it.get("new_due_date")], {"invoice_id": it["invoice"], "person_email": who})
         elif kind == "rate_notice":
-            contract = v.text_or_none(it.get("contract_id"))
+            contract = v.text_or_none(it.get("contract_id")) or _agreement_in_text(ctx, it, problems)
             if not contract:
                 problems.append("a rate notice that doesn't say which agreement it's under")
                 continue
@@ -181,7 +198,8 @@ def build(ctx: DocContext, data: dict, sender: str | None) -> tuple[list[FactOut
                                                             "other" if v.text_or_none(it.get("marker")) else "none")},
                 [], {"invoice_id": it["invoice"], "person_email": sender})
         elif kind == "contract_notice":
-            if not v.text_or_none(it.get("contract_id")):
+            it["contract_id"] = v.text_or_none(it.get("contract_id")) or _agreement_in_text(ctx, it, problems)
+            if not it["contract_id"]:
                 problems.append("a contract notice that doesn't name the agreement")
                 continue
             add("contract_notice", {"notice_type": it.get("notice_type") or "other",

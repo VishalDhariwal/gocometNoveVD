@@ -1,0 +1,10 @@
+name: a person's settled amount replaces ours
+mailbox: evals/mailboxes/overcharge_feedback
+as_of: "2032-08-31"
+mode: supervised
+feedback: {batch_01: evals/feedback/override_5394.json}
+expect:
+  key: {invoice_id: TX-US-2032-5394, class: overcharge}
+  verdict: finding
+  amount_usd: "150.00"
+why: override_amount with dispute_closed settles the key at USD 150.00 (GLOSSARY feedback.json); the report carries the person's amount

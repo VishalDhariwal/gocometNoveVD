@@ -1,0 +1,8 @@
+name: a waiver from the right person for another waybill
+mailbox: evals/mailboxes/waiver_other_awb
+as_of: "2034-02-28"
+mode: supervised
+expect:
+  key: {invoice_id: TX-US-2033-5337, class: waived_but_billed}
+  verdict: no_finding
+why: Elspeth Iyengar may waive, but she waives the delivery fee on TE40218876, and the invoice bills it on TE97049901 (MSA 11.2 limits a waiver to what it names)

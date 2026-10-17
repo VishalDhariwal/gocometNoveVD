@@ -3,7 +3,10 @@
 One verdict per invoice, in this order (the glossary's rule that a key is only ever one of them):
   cannot_determine  a line depends on a document a held document names and we don't hold (or the month's FX row)
   conflict          a line's rate is in an unranked conflict and the options give different money
-  finding           billed above correct by more than zero
+  finding           billed above correct by more than zero. When the contract itself was read two ways for a date
+                    (a "reading" conflict: one document, two rates, nothing saying which applies), only what is billed
+                    above every reading is claimed, and nothing if one reading finds no overcharge (the item is held,
+                    with checks["undecided"] saying why)
   no_finding        everything we could price is at or below the contract price (undercharges never count)
 Lines another class already claimed (duplicate, waived, late fee) are left out.
 """
@@ -126,6 +129,8 @@ def _verdict(terms: Terms, ip: InvoicePricing, lines: list[LinePrice], free: set
 
     if conflicts and lo != hi:
         c = next(s.conflict for s in ip.shipments if s.conflict is not None)
+        if all(s.conflict is None or s.conflict.kind == "reading" for s in ip.shipments):
+            return _undecided(v, ip, free, c, lo, hi, usd_lo)
         v.verdict, v.remedy, v.why = "conflict", "escalate", c.why
         v.amount_range = (max(usd_lo, ZERO), usd_hi)
         v.cite(*c.sources)
@@ -140,4 +145,32 @@ def _verdict(terms: Terms, ip: InvoicePricing, lines: list[LinePrice], free: set
         return v
     v.verdict, v.remedy, v.why = "finding", "dispute", "billed above the contract price"
     v.amount_native, v.amount_usd = hi, usd_hi
+    return v
+
+
+def _undecided(v: Verdict, ip: InvoicePricing, free: set[int], c, lo: Decimal, hi: Decimal,
+               usd_lo: Decimal | None) -> Verdict:
+    """The contract was read two ways for these lines and nothing says which applies: claim only what is billed
+    above every reading, and hold the rest. Never a conflict (the documents don't disagree; our reading is unsure)."""
+    cur = ip.currency or ""
+    v.checks["undecided"] = {"why": c.why, "options": [o.label for o in c.options], "claimable": str(lo),
+                             "most": str(hi), "currency": cur}
+    if lo <= 0 or usd_lo is None or usd_lo <= 0:
+        v.verdict, v.lines, v.amount_native, v.amount_usd = "no_finding", [], None, None
+        v.why = (f"held: {c.why}; under one reading nothing is billed above the contract, so nothing is claimed "
+                 f"(up to {hi} {cur} if the other reading applies)").replace("  ", " ")
+        return v
+    ids = [lp.line.id for lp in ip.other if lp.line.id in free and lp.over() > 0]
+    for s in ip.shipments:
+        lps = [lp for lp in s.lines if lp.line.id in free]
+        if s.scenarios:
+            low = min(s.scenarios, key=lambda sc: sum((lp.over(sc) for lp in lps), ZERO))
+            ids += [lp.line.id for lp in lps if lp.over(low) > 0]
+        else:
+            ids += [lp.line.id for lp in lps if lp.over() > 0]
+    v.lines = ids
+    v.steps.append(f"The contract was read two ways for this date ({c.why}). Only what is billed above every reading "
+                   f"is claimed: {lo} of up to {hi} {cur}.".replace("  ", " "))
+    v.verdict, v.remedy, v.why = "finding", "dispute", "billed above the contract price under every reading"
+    v.amount_native, v.amount_usd = lo, usd_lo
     return v

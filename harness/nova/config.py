@@ -25,10 +25,21 @@ CLASSIFY_MODELS = _list("NOVA_CLASSIFY_MODELS", ("claude-haiku-5-5", "claude-son
 READER_MODELS = _list("NOVA_READER_MODELS", ("claude-sonnet-5-5", "claude-opus-5-5"))
 CONTRACT_MODELS = _list("NOVA_CONTRACT_MODELS", ("claude-opus-5-5", "claude-sonnet-5-5"))
 
-# Reads run in parallel. The grader's practice limit is 600 s per step: stop starting new reads after the budget and
-# let the next ingest pick up whatever is left.
+# Reads run in parallel.
 READER_WORKERS = int(os.environ.get("NOVA_READER_WORKERS", "8"))
-INGEST_BUDGET_S = float(os.environ.get("NOVA_INGEST_BUDGET", "420"))
+# The clock. The grader stops every step (ingest, report, feedback) after 600 s, killing the process. With a limit
+# set, no new read starts in the last STEP_MARGIN_S seconds, so a step ends on its own with everything it did saved;
+# what wasn't read is read first by `report` (then by the next run). NOVA_STEP_LIMIT=0: no limit (outside the grader).
+STEP_LIMIT_S = float(os.environ.get("NOVA_STEP_LIMIT", "600"))
+STEP_MARGIN_S = float(os.environ.get("NOVA_STEP_MARGIN", "60"))
+
+
+def step_deadline(started: float) -> float | None:
+    """The time.monotonic() after which a step starts nothing new, or None without a limit."""
+    return None if STEP_LIMIT_S <= 0 else started + STEP_LIMIT_S - STEP_MARGIN_S
+
+
+
 # A document whose reads keep failing is left alone after this many tries (it stays visible in the run log).
 MAX_READ_ATTEMPTS = 3
 
@@ -56,6 +67,11 @@ REVIEW_MAX_TURNS = 8
 # escalated items (escalate + human_review) in a report stays at or under this. The grader's hard gate is 60%.
 ESCALATION_BUDGET = float(os.environ.get("NOVA_ESCALATION_BUDGET", "0.5"))
 ESCALATION_MIN_ITEMS = 10
+
+
+def report_reads_enabled() -> bool:
+    """`report` first reads documents ingest didn't get to (NOVA_REPORT_READS=off turns that off; tests do)."""
+    return os.environ.get("NOVA_REPORT_READS", "on").strip().lower() not in ("0", "off", "false", "no")
 
 
 def review_enabled() -> bool:

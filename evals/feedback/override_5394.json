@@ -1,0 +1,42 @@
+{
+ "schema_version": "1.0",
+ "world": "EV",
+ "after_batch": "batch_01",
+ "decided_at": "2032-03-02T10:00:00Z",
+ "decided_by": {
+  "name": "Odette Lindqvist",
+  "role": "AP Manager",
+  "entity": "QMP-US"
+ },
+ "items": [
+  {
+   "item_id": "fb-ev-01",
+   "finding_key": {
+    "invoice_id": "TX-US-2032-5394",
+    "class": "overcharge"
+   },
+   "solicited": true,
+   "decision": "override_amount",
+   "fact": {
+    "type": "dispute_closed",
+    "subject": {
+     "invoice_id": "TX-US-2032-5394"
+    },
+    "value": {
+     "status": "settled",
+     "amount_usd": "150.00"
+    },
+    "evidence": "Settled with the carrier on a call"
+   },
+   "scope": {
+    "kind": "one_off",
+    "applies_to": {
+     "invoice_id": "TX-US-2032-5394"
+    },
+    "valid_from": "2032-03-02",
+    "valid_to": null
+   },
+   "note": "The carrier agreed to credit USD 150.00 on this invoice; use that amount."
+  }
+ ]
+}

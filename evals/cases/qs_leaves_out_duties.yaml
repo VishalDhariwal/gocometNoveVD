@@ -1,0 +1,8 @@
+name: qualifying spend leaves out duty and tax
+mailbox: evals/mailboxes/amendment_keeps_rebate
+as_of: "2033-11-30"
+mode: supervised
+expect:
+  key: {contract_id: TBX-US-EXP-E58, period: 2033-Q3, credit_type: rebate, class: cashback}
+  verdict: no_finding
+why: Q3 invoices total 60271.89, over the 55,000 tier, but clause 1.1 leaves out duty, tax and late fees, so qualifying spend is 51381.39 and no rebate is earned; practice run 4 read the definition with duties and taxes in it

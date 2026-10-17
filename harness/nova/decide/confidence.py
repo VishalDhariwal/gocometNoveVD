@@ -3,6 +3,16 @@
 A logistic score over what we know about the evidence behind it. The weights are set by hand for now and get
 calibrated on our own eval set and the practice run (phase 7); the grader scores this with Brier and AUROC, so what
 matters is that weaker items score lower, not the exact numbers.
+
+The first practice run showed why: every overcharge scored 0.92 and the right duplicate, waiver and cashback items
+0.89-0.91, so every wrong item outscored every right one (AUROC 0). Two changes since:
+- the starting score follows how much of an item rests on a model's reading. An overcharge rests on a rate table
+  cell, a weight band and a rate period read by a model; a duplicate on identifiers code matches. Overcharge now
+  starts lowest of the money classes but cashback.
+- a case the reviewer was asked about and didn't settle lowers it.
+A penalty for evidence from a document whose reading came back "partial" was tried and dropped: every contract reading
+comes back partial (its coverage warnings are noisy), so it lowered every contract-based item alike and ranked
+nothing (practice run 3: Brier 0.059, the one wrong item in the middle of the right ones).
 """
 from __future__ import annotations
 
@@ -11,15 +21,16 @@ import math
 from ..knowledge.terms import Terms
 from .common import Verdict
 
-BASE = {"overcharge": 2.4, "duplicate": 2.3, "waived_but_billed": 2.1, "late_fee_not_owed": 2.1,
+BASE = {"overcharge": 1.9, "duplicate": 2.5, "waived_but_billed": 2.1, "late_fee_not_owed": 2.1,
         "late_fee_risk": 2.2, "cashback": 1.7, "expiry": 2.8}
 VERDICT = {"finding": 0.0, "conflict": -0.3, "cannot_determine": -0.4}
 PICKUP = {"tracking": 0.0, "status_email": -0.1, "awb": -0.5, "invoice": -0.9, "none": -1.5}
 VERIFICATION = {"verified": 0.0, "structured": 0.0, "repaired": -0.2, "vision": -0.4, "unverified": -1.0}
 
 
-def score(terms: Terms, v: Verdict, dropped: int = 0, kept: int | None = None) -> float:
-    """`dropped`: citations removed by the quote check; `kept`: citations left."""
+def score(terms: Terms, v: Verdict, dropped: int = 0, kept: int | None = None, unsettled: bool = False) -> float:
+    """`dropped`: citations removed by the quote check; `kept`: citations left. `unsettled`: the case reviewer was asked
+    about this item and didn't settle it (it failed, ran out of time, or what it said didn't pass code's checks)."""
     logit = BASE.get(v.cls, 2.0) + VERDICT.get(v.verdict, 0.0)
     sources = v.checks.get("pickup_sources") or []
     if sources:
@@ -39,6 +50,8 @@ def score(terms: Terms, v: Verdict, dropped: int = 0, kept: int | None = None) -
     gap = v.checks.get("tier_gap")
     if gap is not None and gap < 0.02:
         logit -= 0.5                     # spend within 2% of a rebate tier: one misread line flips it
+    if v.checks.get("undecided"):
+        logit -= 0.8                     # the contract was read two ways: only the amount true either way is claimed
     if v.feedback:
         logit += 0.2                     # a person confirmed part of the reasoning
     review = v.checks.get("review") or {}
@@ -48,6 +61,8 @@ def score(terms: Terms, v: Verdict, dropped: int = 0, kept: int | None = None) -
         logit -= 1.0                     # it was unsure enough to ask a person
     if review.get("agreed"):
         logit += 0.2                     # a second reader went through the documents and agrees
+    if unsettled:
+        logit -= 0.5                     # code flagged it for a second look and nobody settled it
     return round(min(0.98, max(0.05, 1 / (1 + math.exp(-logit)))), 2)
 
 

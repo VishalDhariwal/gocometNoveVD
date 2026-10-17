@@ -296,8 +296,9 @@ S, I = {"type": "string"}, {"type": "integer"}
 EVIDENCE = {"type": "array", "items": {"type": "object", "properties": {"doc": S, "page": I, "quote": S},
                                        "required": ["doc", "page", "quote"]}}
 TOOLS = [
-    {"name": "read_document", "description": "Read a document received by the as-of date, whole or one page. "
-                                             "Emails show which part is quoted.",
+    {"name": "read_document", "description": "Read one page of a document received by the as-of date (page 1 if "
+                                             "you give none); the answer says how many pages it has. A one-page "
+                                             "document comes whole. Emails show which part is quoted.",
      "input_schema": _schema({"doc": S, "page": I}, ["doc"])},
     {"name": "search_documents", "description": "Find documents whose text contains a phrase, invoice number or "
                                                 "waybill. Returns snippets.",

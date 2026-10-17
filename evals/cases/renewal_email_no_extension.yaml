@@ -1,0 +1,10 @@
+name: a renewal offer by email doesn't extend the agreement
+mailbox: evals/mailboxes/renewal_email
+as_of: "2034-02-28"
+mode: supervised
+expect:
+  key: {contract_id: TBX-US-EXP-E24, class: expiry}
+  verdict: finding
+  deadline: "2034-03-20"
+  action: internal:alert
+why: the key account manager offers a 12-month renewal and asks us to confirm; clause 2.4 extends the term only by an instrument signed by both parties, and confirming a renewal is never ours to do, so the expiry alert stands

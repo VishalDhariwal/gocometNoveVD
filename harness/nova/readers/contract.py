@@ -6,8 +6,14 @@ Two reads of the same document, each with one focused job:
    ("Annex A rev 2 (attached)") that may or may not be in the mailbox;
 2. tables: rate periods and rate rows, fuel by month, accessorial fees, charge-code aliases, exchange rates.
 
-Then a completeness check: every short line carrying a decimal number (a rate row, a fuel month, an FX row) must be
-quoted by some extracted item. Missed lines get one more read; whatever is still missing is reported as a warning.
+The two reads run in parallel (they don't depend on each other). Then two checks, each worth one more read of the
+tables with the exact problem named:
+- completeness: every short line carrying a decimal number (a rate row, a fuel month, an FX row) must be quoted by
+  some extracted item;
+- consistency: every period a rate names must be one of the rate periods (matched loosely: "P1" and "Period P1" are
+  the same period). A rate whose period still can't be placed is stored without dates, and pricing then treats the
+  rates of that row as undecided instead of picking one (knowledge/terms.py).
+Whatever is still wrong after that is reported as a warning.
 
 Terms are stored as Claude copied them (strings as printed). The few clauses the engine has to act on (which
 instrument prevails, free storage days, GST, customs holds) are also answered as fixed choices under `rules`, so no
@@ -16,15 +22,19 @@ engine then abstains or falls back to the glossary's default.
 """
 from __future__ import annotations
 
+import re
+from concurrent.futures import ThreadPoolExecutor
+
 from .. import config
 from .. import normalize as norm
-from ..llm import Gateway
+from ..llm import Gateway, LLMFailed
 from . import values as v
 from . import verify
-from .base import (AUTOMATION_FIELD, COMMON_RULES, QUOTE, STR, STR_LIST, DocContext, FactOut, ReadOutcome, call,
-                   ground, injection_facts, plain, tool)
+from .base import (AUTOMATION_FIELD, COMMON_RULES, QUOTE, RETRY_NOTE, STR, STR_LIST, SUMMARY_FIELD, SUMMARY_RULE,
+                   DocContext,
+                   FactOut, ReadOutcome, call, ground, injection_facts, plain, tool)
 
-VERSION = "contract-v2"
+VERSION = "contract-v3"
 
 TERM_NAMES = [
     "pricing_date", "chargeable_weight", "minimum_charge", "weight_band_rule", "rate_notices", "fuel_surcharge",
@@ -41,7 +51,7 @@ This is a contract document between a shipper and a carrier: a master services a
 - parties: the shipper and the carrier, with the short party code Schedule 1 uses for each (for example "TBX-US");
 - term: when the agreement ends, whether it renews itself, and any notice period for not renewing (for an amendment, only a new end date it sets);
 - terms: every clause that affects what may be billed, when it is due, what is owed back, or who may decide things. Use one entry per clause with the best-fitting name and put the clause's content in `value` as an object of short fields, copying numbers as printed. Suggested shapes:
-  payment_days {days, from}; late_fee {rate_pct, per, grace_days, compounding: true/false, base}; disputed_amounts {no_fee_while_disputed: true/false}; due_date_extension {who}; dispute_window {days, from, contact}; storage {free_days, arrival_event, release_events, arrival_day_counts, release_day_charged}; fuel_surcharge {applies_to, month_of, excludes}; chargeable_weight {volumetric_divisor, round_up_to}; minimum_charge {rule}; weight_band_rule {rule}; dangerous_goods {rule}; dry_ice {rule}; mixed_dg {rule}; delivery_fee {rule}; customs_fees {rule}; volume_rebate {tiers: [{min, pct}], currency, period, applies_to}; rebate_credit_due {days_after_period_end}; qualifying_spend {includes, excludes, credit_notes, conversion}; handling_margin {applicable, pct, base}; margin_step_down {applicable, threshold, measure, period, new_pct, applies_from}; improvement_credit {pct, basis, due_days_after_anniversary}; waiver_rules {who, scope, conditional}; precedence {order, between_amendments, unranked, quoted_text}; rate_notices {who, effective}; contract_year {starts}; gst {rate_pct, applies_when}; fx_updates {who}; notices {rule}; termination {notice_days, rule}.
+  payment_days {days, from}; late_fee {rate_pct, per, grace_days, compounding: true/false, base}; disputed_amounts {no_fee_while_disputed: true/false}; due_date_extension {who}; dispute_window {days, from, contact}; storage {free_days, arrival_event, release_events, arrival_day_counts, release_day_charged}; fuel_surcharge {applies_to, month_of, excludes}; chargeable_weight {volumetric_divisor, round_up_to}; minimum_charge {rule}; weight_band_rule {rule}; dangerous_goods {rule}; dry_ice {rule}; mixed_dg {rule}; delivery_fee {rule}; customs_fees {rule}; volume_rebate {tiers: [{threshold, rate_pct}], currency, period, applies_to}; rebate_credit_due {days_after_period_end}; qualifying_spend {includes, excludes, credit_notes, conversion}; handling_margin {applicable, pct, base}; margin_step_down {applicable, threshold, measure, period, new_pct, applies_from}; improvement_credit {pct, basis, due_days_after_anniversary}; waiver_rules {who, scope, conditional}; precedence {order, between_amendments, unranked, quoted_text}; rate_notices {who, effective}; contract_year {starts}; gst {rate_pct, applies_when}; fx_updates {who}; notices {rule}; termination {notice_days, rule}.
   Write "applicable": false for a clause that says it does not apply.
 - rules: answer these fixed questions, each with its clause number and a quote. Answer only from this document's own words, never from general practice; if the document doesn't settle a question, answer not_stated or leave it out. An amendment answers only what it changes.
   - notice_vs_amendment: when a rate notice (or other correspondence) and a signed amendment give different rates for the same lane and period, which prevails? unranked = the document says neither prevails automatically, or that the parties resolve the difference jointly, or that its precedence clause does not rank correspondence against amendments; amendment_prevails; notice_prevails; later_prevails = whichever takes effect later; not_stated = the document doesn't say.
@@ -55,21 +65,21 @@ This is a contract document between a shipper and a carrier: a master services a
   - qualifying_spend: included = the kinds of charges that count (base_freight, fuel, security, annex_d_accessorials, handling_margin, carrier_cost, duties, taxes, late_fees), only those the definition includes; credit_notes = net_all_dated_in_period (net of every credit note dated in the period), net_only_for_period_invoices, not_netted or not_stated.
   - handling_margin: applicable; rate_pct; step_down_applicable; step_down_threshold as printed; step_down_measure (quarter_qualifying_spend, quarter_billed_total or other); step_down_rate_pct = the rate after the step-down.
   - term: auto_renews; non_renewal_notice_days = days before the end date by which notice of non-renewal must be given; extension_by = signed_instrument_only (only an instrument signed by both parties extends the term), notice_from_authorised_person, or not_stated.
-- doc_references: every other document this one relies on by name. name_as_cited is its name exactly as cited but without words saying it is attached or enclosed ("Annex A rev 2 (attached)" -> "Annex A rev 2"; said_to_be_attached records that). Add what it governs, the lanes it covers, from when, who issues it and its category;
+- doc_references: every other document this one relies on by name. name_as_cited is its name exactly as cited but without words saying it is attached or enclosed ("Annex A rev 2 (attached)" -> "Annex A rev 2"; said_to_be_attached records that). Add what it governs, the lanes it covers, from when, who issues it and its category. An amendment that deletes or replaces rates by pointing to another annex or schedule ("The Annex A rates for lane(s) X are deleted and replaced as follows: Annex A rev 2 (attached) applies from ...") cites that document: record it, with its lanes and date, even when it says it is attached. Give an empty list only when the document names no other document;
 - schedule1: every Authorised Person with name, title, party code, categories and email address.
 Don't record the rate, fuel, fee, charge-code or exchange-rate tables here; a separate read covers them.
-
-""" + v.EVENT_HELP
+""" + SUMMARY_RULE + "\n\n" + v.EVENT_HELP
 
 TABLES_SYSTEM = COMMON_RULES + """
 
 This is a contract document between a shipper and a carrier. Record its tables, every row, nothing skipped:
-- rate_periods: each rate period with its label and pickup dates, and whether the last period's rates keep applying after it ends;
+- rate_periods: each rate period with its label and pickup dates, and whether the last period's rates keep applying after it ends. The label is the short name the rate table's columns use for the period: for a column headed "P1 rate" and a line "Period P1: pickups ...", the label is "P1". Every period named in a rate's values must be one of these labels, spelled the same way;
 - rates: every rate row: lane, weight band exactly as printed ("0-44.5 kg", "300+ kg", "minimum charge"), band_kind (per_kg, or minimum_charge for a per-shipment minimum), band_from and band_to copied from the band (leave band_to empty for an open-ended band such as "300+ kg", band_from empty for "up to 44.5 kg"), and its rate for each period column (period = the column's label; leave period empty when one rate applies to every period, as in an amendment); add valid_from / valid_to only when the row itself states dates;
 - fuel: the fuel surcharge for each month;
 - accessorials: each fee with its code, name, fee, currency and basis as printed (keep conditions such as "for pickups in September to November only" in basis), plus basis_unit (per_kg for per chargeable kg, per_shipment, per_day, per_month, per_invoice, percent, or other) and, only when the fee applies to pickups in certain months, pickup_months as month numbers (September to November = [9, 10, 11]);
 - charge_codes: each charge code with its name and every label it may be billed as;
-- fx: each exchange-rate row (month and rate as printed, and what the rate is, for example "INR per 1 USD")."""
+- fx: each exchange-rate row (month and rate as printed, and what the rate is, for example "INR per 1 USD").
+An amendment or an annex update usually has only some of these tables: give empty lists for the ones it doesn't have."""
 
 PARTY = {"type": "object", "properties": {"role": {"enum": ["shipper", "carrier", "other"]}, "name": STR, "code": STR,
                                           "quote": QUOTE}, "required": ["role", "name"]}
@@ -149,7 +159,8 @@ TERMS_TOOL = tool("record_contract_terms", "Record what a contract document is a
         "name": STR, "title": STR, "party": STR, "categories": STR_LIST, "email": STR, "quote": QUOTE},
         "required": ["name", "categories", "email"]}},
     "automation_instructions": AUTOMATION_FIELD,
-}, ["instrument", "terms", "schedule1", "automation_instructions"])
+    "summary": SUMMARY_FIELD,
+}, ["instrument", "terms", "doc_references", "schedule1", "automation_instructions"])
 
 TABLES_TOOL = tool("record_contract_tables", "Record every row of a contract's rate and fee tables.", {
     "rate_periods": {"type": "array", "items": {"type": "object", "properties": {
@@ -181,10 +192,38 @@ class ContractReader:
     def read(self, ctx: DocContext, gateway: Gateway) -> ReadOutcome:
         out = ReadOutcome(self.name, self.version)
         doc = ctx.document_block()
-        terms = call(gateway, out, purpose="contract_terms", models=config.CONTRACT_MODELS, system=TERMS_SYSTEM,
-                     tool_def=TERMS_TOOL, content=doc, max_tokens=16000)
-        tables = call(gateway, out, purpose="contract_tables", models=config.CONTRACT_MODELS, system=TABLES_SYSTEM,
-                      tool_def=TABLES_TOOL, content=doc, max_tokens=16000)
+        # terms and tables don't depend on each other: read them side by side (the longest read in a batch)
+        terms_out, tables_out = ReadOutcome(self.name, self.version), ReadOutcome(self.name, self.version)
+        note = RETRY_NOTE.get()
+
+        def read_one(o, purpose, system, tool_def):
+            RETRY_NOTE.set(note)              # a worker thread starts with an empty context
+            return call(gateway, o, purpose=purpose, models=config.CONTRACT_MODELS, system=system, tool_def=tool_def,
+                        content=doc, max_tokens=16000)
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            f_terms = pool.submit(read_one, terms_out, "contract_terms", TERMS_SYSTEM, TERMS_TOOL)
+            f_tables = pool.submit(read_one, tables_out, "contract_tables", TABLES_SYSTEM, TABLES_TOOL)
+            terms, tables = f_terms.result(), f_tables.result()
+        for o in (terms_out, tables_out):
+            out.model = o.model or out.model
+            out.input_tokens += o.input_tokens
+            out.output_tokens += o.output_tokens
+            out.warnings += o.warnings
+            out.repaired = out.repaired or o.repaired
+        out.summary = terms_out.summary
+        unplaced = unknown_periods(tables)
+        if unplaced:
+            known = ", ".join(repr(str(p.get("label"))) for p in tables.get("rate_periods") or []) or "none"
+            again = call(gateway, out, purpose="contract_tables", models=config.CONTRACT_MODELS, system=TABLES_SYSTEM,
+                         tool_def=TABLES_TOOL, max_tokens=16000,
+                         content=doc + "\n\nA first reading named periods in the rates that aren't among its rate "
+                                       f"periods: rates use {', '.join(map(repr, unplaced))}, rate_periods are {known}. "
+                                       "Record the tables again, complete, with each rate period's label written "
+                                       "exactly as the rates name it.")
+            if len(unknown_periods(again)) < len(unplaced):
+                tables = again
+        terms = self._cited_as_attached(ctx, gateway, out, doc, terms)
         missed = self._uncovered(ctx, terms, tables)
         if missed:
             listed = "\n".join(f"- {line}" for line in missed[:60])
@@ -199,9 +238,43 @@ class ContractReader:
         problems += [f"table-like line not extracted: {line}" for line in missed]
         out.doc_type = (terms.get("instrument") or {}).get("type")
         out.facts = facts
-        out.warnings = problems
-        out.status = "partial" if problems else "ok"
+        out.warnings = out.warnings + problems
+        out.status = "partial" if out.warnings else "ok"
         return out
+
+    @staticmethod
+    def _cited_as_attached(ctx: DocContext, gateway: Gateway, out: ReadOutcome, doc: str, terms: dict) -> dict:
+        """A backstop for the one reference that decides a cannot_determine: an amendment (or any instrument but the
+        MSA, whose annexes are its own) that names a document as attached or enclosed, with no doc_reference for it.
+        One more reading of the terms, naming those lines; only its doc_references are taken."""
+        if ((terms.get("instrument") or {}).get("type") or "") == "msa":
+            return terms
+        text = "\n".join(t for _, t in ctx.page_texts)
+        cited = {m.group(1).strip() for m in ATTACHED.finditer(text)}
+        have = {_flat(r.get("name_as_cited")) for r in terms.get("doc_references") or []}
+        missing = sorted(n for n in cited if _flat(n) and not any(_flat(n) in h or h in _flat(n) for h in have if h))
+        if not missing:
+            return terms
+        lines = [line.strip() for line in text.splitlines() if any(n in line for n in missing)]
+        try:
+            again = call(gateway, out, purpose="contract_terms", models=config.CONTRACT_MODELS, system=TERMS_SYSTEM,
+                         tool_def=TERMS_TOOL, max_tokens=16000,
+                         content=doc + "\n\nNote from the audit system, not part of the document: this document "
+                                       "cites " + ", ".join(repr(n) for n in missing) + " as attached or enclosed, "
+                                       "and a first reading recorded no doc_references for it. Record the terms "
+                                       "again, with every document it cites under doc_references. The lines:\n"
+                                       + "\n".join(f"- {line}" for line in lines[:10]))
+        except LLMFailed as e:          # the first reading stands; the gap is written down
+            out.warnings.append(f"cited as attached but not recorded as a document reference: {', '.join(missing)} "
+                                f"(a second reading failed: {e})")
+            return terms
+        found = [r for r in again.get("doc_references") or [] if _flat(r.get("name_as_cited"))
+                 and _flat(r.get("name_as_cited")) not in have]
+        if found:
+            terms = {**terms, "doc_references": list(terms.get("doc_references") or []) + found}
+        else:
+            out.warnings.append("cited as attached but not recorded as a document reference: " + ", ".join(missing))
+        return terms
 
     @staticmethod
     def _uncovered(ctx: DocContext, terms: dict, tables: dict) -> list[str]:
@@ -210,6 +283,58 @@ class ContractReader:
                    for x in tables.get(section) or []]
         quotes += [(terms.get(k) or {}).get("quote") for k in ("instrument", "term")]
         return verify.uncovered_lines(ctx.page_texts, [q for q in quotes if q])
+
+
+# A rule read from an amendment (any instrument but the MSA) counts only when its quote speaks of the rule's subject.
+RULE_SUBJECT = {
+    "volume_rebate": r"\brebate", "improvement_credit": r"\bimprovement", "handling_margin": r"\bmargin",
+    "storage": r"\bstorage|\bfree days?\b|\bwarehous", "customs_holds": r"\bcustoms\b",
+    "payment_terms": r"\bpay(ment|able)?\b|\bdue\b", "late_fee": r"\blate\b",
+    "term": r"\bterm\b|\bexpir|\bextend|\bextension\b|\brenew|\bend date",
+    "qualifying_spend": r"\bqualifying\b", "notice_vs_amendment": r"\bnotices?\b|\bprevail|\bprecedence",
+    "gst": r"\bgst\b|\btax",
+}
+# The words that name each kind of charge in a Qualifying Spend definition.
+QS_WORDS = {"base_freight": r"\bfreight\b", "fuel": r"\bfuel\b", "security": r"\bsecurity\b",
+            "annex_d_accessorials": r"\bannex d\b|\baccessorial", "handling_margin": r"\bmargin\b",
+            "carrier_cost": r"\bcarrier'?s? costs?\b", "duties": r"\bdut(y|ies)\b", "taxes": r"\btax(es)?\b|\bgst\b",
+            "late_fees": r"\blate fees?\b"}
+EXCLUDES = re.compile(r"\b(?:exclud\w*|does not include|do not include|not including)\b", re.I)
+
+ATTACHED = re.compile(r"([A-Z](?:(?!\.\s+[A-Z])[A-Za-z0-9 .\-/]){1,40}?)\s*\((?:attached|enclosed)\)")
+
+
+def _flat(name) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(name or "").lower())
+
+
+def period_key(label) -> str:
+    """A period's name reduced to what identifies it: "Period P1", "P1 rate", "Period P1: pickups 2035-01-06 to ..."
+    and "p1" all become "p1"."""
+    s = re.split(r"[:(]", str(label or "").lower(), maxsplit=1)[0]
+    s = re.sub(r"\b(rates?|period|periods|column|pickups?)\b", " ", s)
+    return re.sub(r"[^a-z0-9]+", "", s)
+
+
+def match_periods(periods: dict[str, tuple], label: str) -> tuple | None:
+    """The (from, to) of the rate period a rate's period name refers to, or None if it can't be placed for sure."""
+    if not label:
+        return None
+    if label in periods:
+        return periods[label]
+    want = period_key(label)
+    keyed: dict[str, list] = {}
+    for name, span in periods.items():
+        keyed.setdefault(period_key(name), []).append(span)
+    hits = keyed.get(want) or []
+    return hits[0] if want and len(hits) == 1 else None
+
+
+def unknown_periods(tables: dict) -> list[str]:
+    """The period names the rates use that no rate period matches."""
+    periods = {str(p.get("label") or "").strip(): (None, None) for p in tables.get("rate_periods") or []}
+    names = {str(val.get("period") or "").strip() for r in tables.get("rates") or [] for val in r.get("values") or []}
+    return sorted(n for n in names if n and match_periods(periods, n) is None)
 
 
 def build(ctx: DocContext, terms: dict, tables: dict) -> tuple[list[FactOut], list[str]]:
@@ -262,6 +387,12 @@ def build(ctx: DocContext, terms: dict, tables: dict) -> tuple[list[FactOut], li
     rules = terms.get("rules") or {}
 
     def rule(name, value, item, check):
+        quote = str(item.get("quote") or "")
+        if itype != "msa" and not re.search(RULE_SUBJECT.get(name, name.replace("_", " ")), quote, re.I):
+            # an amendment changes only what it prints: "All other terms of the Agreement are unchanged" is not a
+            # rebate clause, and must not switch the MSA's rebate off (practice runs 2 and 4)
+            problems.append(f"rule {name} from the {itype} left out: its quote doesn't speak of it ({quote[:60]!r})")
+            return
         fact("contract_term", {"term": f"rule:{name}", "clause": v.text_or_none(item.get("clause")), "value": value,
                                "instrument": itype, "instrument_ref": reference},
              item.get("quote"), check, valid_from=effective)
@@ -299,15 +430,23 @@ def build(ctx: DocContext, terms: dict, tables: dict) -> tuple[list[FactOut], li
              for t in vr.get("tiers") or [] if isinstance(t, dict)]
     tiers = sorted((t for t in tiers if t["threshold"] is not None and t["rate_pct"] is not None),
                    key=lambda t: t["threshold"])
-    if vr.get("applicable") is False:
-        rule("volume_rebate", {"applicable": False}, vr, [])
-    elif tiers:
+    check_vals = [t.get("threshold") for t in vr.get("tiers") or [] if isinstance(t, dict) and t.get("threshold")]
+    if not tiers and vr.get("quote"):
+        q_matches = re.findall(r"(?:[A-Z]{3}\s*)?([0-9,]+(?:\.[0-9]+)?)\s*:\s*([0-9.]+)%", str(vr["quote"]))
+        if q_matches:
+            tiers = sorted(([{"threshold": v.parse_amount(m[0]), "rate_pct": v.parse_pct(m[1])} for m in q_matches]),
+                           key=lambda t: t["threshold"])
+            tiers = [t for t in tiers if t["threshold"] is not None and t["rate_pct"] is not None]
+            check_vals = [m[0] for m in q_matches]
+    if tiers:
         rule("volume_rebate", {"applicable": True, "period": v.choice(vr.get("period"), ["quarter", "contract_year",
-                                                                                         "month", "other"], "other"),
+                                                                                         "month", "other"], "quarter"),
                                "tiers": tiers, "threshold_currency": (v.text_or_none(vr.get("threshold_currency"))
-                                                                      or "").upper() or None,
-                               "credit_due_days": _days(vr.get("credit_due_days"))},
-             vr, [t.get("threshold") for t in vr.get("tiers") or [] if isinstance(t, dict)])
+                                                                      or "USD").upper(),
+                               "credit_due_days": _days(vr.get("credit_due_days")) or 45},
+             vr, check_vals)
+    elif vr.get("applicable") is False:
+        rule("volume_rebate", {"applicable": False}, vr, [])
     ic = rules.get("improvement_credit") or {}
     if ic.get("applicable") is False:
         rule("improvement_credit", {"applicable": False}, ic, [])
@@ -317,6 +456,12 @@ def build(ctx: DocContext, terms: dict, tables: dict) -> tuple[list[FactOut], li
              ic, [ic["rate_pct"]])
     qs = rules.get("qualifying_spend") or {}
     parts = sorted({p for p in qs.get("included") or [] if p in QS_PARTS})
+    named = EXCLUDES.split(str(qs.get("quote") or ""), maxsplit=1)[0]
+    if named.strip():     # keep only the kinds the definition itself names, before any "excludes"
+        unnamed = [p for p in parts if not re.search(QS_WORDS[p], named, re.I)]
+        if unnamed:
+            problems.append(f"qualifying spend: {', '.join(unnamed)} left out, the definition doesn't name them")
+            parts = [p for p in parts if p not in unnamed]
     if parts:
         rule("qualifying_spend", {"included": parts,
                                   "credit_notes": v.choice(qs.get("credit_notes"), CREDIT_NETTING, "not_stated")}, qs, [])
@@ -378,9 +523,10 @@ def build(ctx: DocContext, terms: dict, tables: dict) -> tuple[list[FactOut], li
         for val in r.get("values") or []:
             rate = v.parse_amount(val.get("rate"))
             label = str(val.get("period") or "").strip()
-            if label and label in periods:
-                start, end = periods[label]
-                if continues and label == last_label:
+            span = match_periods(periods, label)
+            if span is not None:
+                start, end = span
+                if continues and span == periods.get(last_label):
                     end = None
             elif label:
                 problems.append(f"rate for unknown period {label!r} on {r.get('lane')}")

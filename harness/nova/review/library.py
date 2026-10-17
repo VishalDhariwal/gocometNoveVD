@@ -82,10 +82,16 @@ class Library:
         self.headers = invoice_headers(view)
         self.contract = {inv: contract_of(terms, h) for inv, h in self.headers.items()}
         self.status: dict[int, str | None] = {}
+        # documents whose current reading finished cleanly (not partial, not failed): one with nothing in it said nothing
+        self.clean = {r[0] for r in store.con.execute(
+            "SELECT d.id FROM documents d JOIN extractions e ON e.id = d.current_extraction_id WHERE e.status = 'ok'")}
+        self.summary: dict[int, str] = {}        # each document's card, written by its reader
         self.children: dict[int, list[int]] = {}
         for doc_id, d in sorted(self.docs.items()):
             row = store.document(doc_id)
             self.status[doc_id] = row["status"] if row is not None else None
+            if row is not None and "summary" in row.keys() and (row["summary"] or "").strip():
+                self.summary[doc_id] = row["summary"].strip()
             if d.parent_id is not None:
                 self.children.setdefault(d.parent_id, []).append(doc_id)
         # each document's text as letters and digits only, to find which documents name an invoice or a waybill
@@ -102,21 +108,49 @@ class Library:
                "from_name": d.from_name, "subject": d.subject}
         if d.is_scan:
             out["note"] = "scanned: the text is a transcription; cite the page"
+        n_pages = len(self.pages.get(d.doc_id) or {})
+        if n_pages > 1:
+            out["pages"] = n_pages
+        out["summary"] = self.summary.get(d.doc_id)
         return {k: v for k, v in out.items() if v}
 
-    def document_text(self, d: DocInfo, page: int | None = None, limit: int = ANSWER_CHARS) -> str:
+    def document_text(self, d: DocInfo, page: int | None = None, limit: int = ANSWER_CHARS,
+                      only: list[int] | None = None, note: str = "") -> str:
+        """The document's card, then its text: every page, one `page`, or the pages in `only` ([] = the card alone)."""
         head = json.dumps(self.describe(d), ensure_ascii=False)
         pages = self.pages.get(d.doc_id) or {}
-        chosen = {page: pages.get(page, "")} if page else pages
+        if only is not None:
+            chosen = {n: pages[n] for n in only if n in pages}
+        else:
+            chosen = {page: pages.get(page, "")} if page else pages
         parts = [f"<document {head}>"]
         em = self.emails.get(d.doc_id)
         for n, text in sorted(chosen.items()):
-            parts.append(f"--- page {n} ---\n{clip(text, PAGE_CHARS)}")
-        if em and em["quoted"].strip():
+            of = f" of {len(pages)}" if len(pages) > 1 and len(chosen) < len(pages) else ""
+            parts.append(f"--- page {n}{of} ---\n{clip(text, PAGE_CHARS)}")
+        if note:
+            parts.append(f"({note})")
+        if em and em["quoted"].strip() and (not pages or min(pages) in chosen):
             parts.append("--- of which quoted or forwarded (not the sender's own words) ---\n"
                          + clip(em["quoted"], PAGE_CHARS // 2))
         parts.append("</document>")
         return clip("\n".join(parts), limit)
+
+    def centre_text(self, d: DocInfo, fact_ids: list[int], card_only: str = "") -> str:
+        """A document at the centre of a case, for the brief: its card and the pages holding the case's facts. A
+        one-page document is shown whole; a document with no card and no such page, from its first page. The agent
+        reads any other page with read_document."""
+        pages = self.pages.get(d.doc_id) or {}
+        if card_only:
+            return self.document_text(d, only=[], note=card_only)
+        wanted = {f.page or 1 for f in self.facts_by_doc.get(d.doc_id, []) if f.id in set(fact_ids)}
+        if len(pages) <= 1:
+            wanted = set(pages)
+        elif not wanted and d.doc_id not in self.summary:
+            wanted = {min(pages)}
+        rest = len(pages) - len(wanted & set(pages))
+        note = f"{rest} more page(s): read_document gives any of them" if rest > 0 else ""
+        return self.document_text(d, only=sorted(wanted), note=note)
 
     def fact_row(self, f: Fact) -> dict:
         data = {k: v for k, v in f.payload.items() if k not in DROP and v not in (None, "", [], {})}
@@ -201,10 +235,21 @@ class Library:
 
     # ---- tools ------------------------------------------------------------------------------------------------
     def read_document(self, doc: str, page: int | None = None) -> str:
+        """One page at a time: page 1 when none is asked for. A one-page document comes whole."""
         d = self.by_ref.get(str(doc).strip())
         if d is None:
             return f"No document {doc!r} received by the as-of date. Use search_documents to find one."
-        return self.document_text(d, page)
+        pages = self.pages.get(d.doc_id) or {}
+        if page is not None and pages and page not in pages:
+            return f"{d.doc_ref} has no page {page}: its pages are {min(pages)} to {max(pages)}."
+        if page is None and len(pages) > 1:
+            page = min(pages)
+        text = self.document_text(d, page)
+        if page is not None and len(pages) > 1:
+            later = [n for n in sorted(pages) if n > page]
+            text += (f"\nThis was page {page} of {len(pages)}. "
+                     + (f"Ask for page {later[0]} or any other with read_document." if later else "It is the last page."))
+        return text
 
     def search_documents(self, text: str) -> str:
         want, want_c = squash(text).lower(), compact(text)

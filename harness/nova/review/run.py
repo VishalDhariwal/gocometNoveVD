@@ -24,19 +24,20 @@ Reviewed = list[tuple[triage.Case, check.Outcome]]
 
 
 def review(store: Store, gateway: Gateway | None, terms: Terms, verdicts: list[Verdict], *, mode: str, gates: dict,
-           report_id: int | None = None, enabled: bool | None = None) -> tuple[list[Verdict], Reviewed]:
+           report_id: int | None = None, enabled: bool | None = None,
+           deadline: float | None = None) -> tuple[list[Verdict], Reviewed]:
     """-> (the verdicts with what the reviewer added or held, each case with what code made of it). Never raises: any
     failure leaves code's verdicts."""
     if gateway is None or not (config.review_enabled() if enabled is None else enabled):
         return verdicts, []
     try:
-        return _review(store, gateway, terms, verdicts, mode, gates, report_id)
+        return _review(store, gateway, terms, verdicts, mode, gates, report_id, deadline)
     except Exception:  # noqa: BLE001 - the reviewer is a second look; the report must not depend on it
         log.exception("the case reviewer failed; keeping code's verdicts")
         return verdicts, []
 
 
-def _review(store, gateway, terms, verdicts, mode, gates, report_id) -> tuple[list[Verdict], Reviewed]:
+def _review(store, gateway, terms, verdicts, mode, gates, report_id, step_deadline=None) -> tuple[list[Verdict], Reviewed]:
     lib = Library(store, terms)
     cases = triage.pick(lib, verdicts, gates, mode, config.REVIEW_MAX_CASES)
     if not cases:
@@ -48,6 +49,8 @@ def _review(store, gateway, terms, verdicts, mode, gates, report_id) -> tuple[li
         return verdicts, [(c, check.Outcome("failed", f"no API access: {e}")) for c in cases]
     claimed = {line: v.cls for v in verdicts if v.verdict == "finding" for line in v.lines}
     deadline = time.monotonic() + config.REVIEW_BUDGET_S
+    if step_deadline is not None:      # the step's own clock (the grader's 600 s) comes first
+        deadline = min(deadline, step_deadline)
     with ThreadPoolExecutor(max_workers=max(1, config.REVIEW_WORKERS)) as pool:
         futures = [pool.submit(agent.run_case, gateway, lib, c, dict(claimed), deadline) for c in cases]
         results = []
@@ -81,6 +84,7 @@ def _review(store, gateway, terms, verdicts, mode, gates, report_id) -> tuple[li
         log.info("review %s (%s): %s - %s", case.key, case.reason, outcome.kind, outcome.detail)
         if report_id is not None:
             store.add_review(report_id, finding_key=case.key, reason=case.reason, opinion=res.decision,
-                             outcome=outcome.kind, detail=outcome.detail, model=res.model, turns=res.turns)
+                             outcome=outcome.kind, detail=outcome.detail, model=res.model, turns=res.turns,
+                             seconds=res.seconds, input_tokens=res.input_tokens, output_tokens=res.output_tokens)
     log.info("case reviewer: %d case(s), %s", len(cases), ", ".join(f"{n} {k}" for k, n in sorted(counts.items())))
     return [by_key[k] for k in order], done

@@ -1,0 +1,91 @@
+{
+ "sheet_version": "1.0",
+ "as_of": "2031-02-28",
+ "mode": "supervised",
+ "source": "exam_report.json",
+ "totals": {
+  "total_overpayment": "4030.46",
+  "cashback_owed": "4307.34",
+  "late_fees_avoided": "0.00",
+  "total_savings": "8337.80"
+ },
+ "classes": {
+  "overcharge": {
+   "count": 4,
+   "amount_usd": "637.12",
+   "ids": [
+    "CDI-3031-0306",
+    "CDU-3051266",
+    "CDU-3051286",
+    "CDU-3051297"
+   ],
+   "amounts_by_id": {
+    "CDI-3031-0306": "85.46",
+    "CDU-3051266": "244.37",
+    "CDU-3051286": "151.64",
+    "CDU-3051297": "155.65"
+   }
+  },
+  "duplicate": {
+   "count": 2,
+   "amount_usd": "3287.94",
+   "ids": [
+    "CDU-3051273",
+    "CDU-3051313"
+   ],
+   "amounts_by_id": {
+    "CDU-3051273": "3235.24",
+    "CDU-3051313": "52.70"
+   }
+  },
+  "waived_but_billed": {
+   "count": 2,
+   "amount_usd": "105.40",
+   "ids": [
+    "CDU-3051259",
+    "CDU-3051323"
+   ],
+   "amounts_by_id": {
+    "CDU-3051259": "52.70",
+    "CDU-3051323": "52.70"
+   }
+  },
+  "late_fee_not_owed": {
+   "count": 0,
+   "amount_usd": "0.00",
+   "ids": [],
+   "amounts_by_id": {}
+  },
+  "cashback": {
+   "count": 1,
+   "amount_usd": "4307.34",
+   "ids": [
+    "CDA-US-EXP-E91/2030-Q3/rebate"
+   ],
+   "amounts_by_id": {
+    "CDA-US-EXP-E91/2030-Q3/rebate": "4307.34"
+   }
+  },
+  "late_fee_risk": {
+   "count": 0,
+   "amount_usd": "0.00",
+   "ids": [],
+   "amounts_by_id": {},
+   "deadlines_by_id": {}
+  },
+  "expiry": {
+   "count": 1,
+   "amount_usd": null,
+   "ids": [
+    "CDA-US-EXP-E91"
+   ],
+   "amounts_by_id": {},
+   "deadlines_by_id": {
+    "CDA-US-EXP-E91": "2031-04-01"
+   }
+  }
+ },
+ "conflicts": [],
+ "cannot_determine": [],
+ "mailbox": "exam"
+}

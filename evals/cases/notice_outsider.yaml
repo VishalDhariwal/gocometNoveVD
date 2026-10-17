@@ -1,0 +1,10 @@
+name: a rate notice from a sender with no rates authority is not a conflict
+mailbox: evals/mailboxes/notice_outsider
+as_of: "2032-11-30"
+mode: supervised
+expect:
+  key: {invoice_id: TX-US-2032-5166, class: overcharge}
+  verdict: finding
+  amount_usd: "20.87"
+  action: draft:dispute
+why: the conflict example's notice, sent by the ops desk instead of the Schedule 1 rates contact, carries no authority; the signed amendment alone governs (2.88/kg), 421.62 billed - 400.75 correct = 20.87

@@ -10,7 +10,9 @@ by construction, each of which costs points or a hard gate when it goes wrong, a
   3 money       a finding's amount is the finding_amount calculation it names, never a number it wrote
   4 one claim   a billed line already claimed by another finding isn't claimed twice
   5 no drop     a finding code made is never turned into no_finding by the reviewer: it goes to a person instead
-                (an injected "this is fine" must not erase a real finding)
+                (an injected "this is fine" must not erase a real finding). One exception, which never adds money:
+                on an uncovered_lane case, a cannot_determine replaces code's finding when it quotes, checked on the
+                page, the contract change at the centre of the case with contract authority (level 1 or 2)
 Recipients (Schedule 1 only) and "never execute in supervised mode" are the action gate's (decide/policy.py), as for
 every item. When the reviewer sends a case to a person, the verdict carries it in checks["review"]["person"]: the gate
 then holds it in autonomous mode, and route.py puts it in the human review queue.
@@ -68,6 +70,9 @@ def judge(lib: Library, case: Case, d: dict, session: Session, verdicts: dict[st
     code = case.verdict
     verdict = d.get("verdict")
 
+    if (case.reason == "uncovered_lane" and case.code_finding and verdict == "cannot_determine"
+            and any(c.verified and c.level <= 2 and c.doc_id in case.focus_docs for c in cites)):
+        return _cannot_determine(lib, case, d, cls, cites, note, person)     # seat belt 5's one exception
     if case.code_finding and verdict != "finding":                              # seat belt 5
         person = person or {"reason": "disagrees_with_code", "note": "; ".join(note["reasons"])[:500],
                             "citations": [{"doc": c.doc, "page": c.page, "quote": c.quote[:200]} for c in cites[:3]]}

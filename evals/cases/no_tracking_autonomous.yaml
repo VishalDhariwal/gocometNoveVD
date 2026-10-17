@@ -1,0 +1,10 @@
+name: autonomous mode doesn't send a dispute priced on an invoice date
+mailbox: evals/mailboxes/no_tracking
+as_of: "2032-08-31"
+mode: autonomous
+expect:
+  key: {invoice_id: TX-US-2032-5394, class: overcharge}
+  verdict: finding
+  amount_usd: "196.92"
+  action: human_review
+why: without the tracking export the pickup date comes from the invoice (the same day, so the same 196.92), but the unattended-action test needs it from tracking or a carrier email, so a person approves it

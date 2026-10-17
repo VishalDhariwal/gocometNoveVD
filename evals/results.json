@@ -1,0 +1,93 @@
+{
+ "harness": "harness/harness.py",
+ "passed": 14,
+ "total": 14,
+ "your_cases": 12,
+ "score": 1.0,
+ "cases": [
+  {
+   "case": "amendment_keeps_rebate.yaml",
+   "name": "an amendment that changes one lane's rates leaves the rebate alone",
+   "pass": true,
+   "diff": []
+  },
+  {
+   "case": "amendment_missing_annex.yaml",
+   "name": "an amendment cites an annex as attached that we don't hold",
+   "pass": true,
+   "diff": []
+  },
+  {
+   "case": "extension_outsider.yaml",
+   "name": "a due date extension from a sender with no payment-terms authority",
+   "pass": true,
+   "diff": []
+  },
+  {
+   "case": "feedback_close.yaml",
+   "name": "a closed dispute stops being raised",
+   "pass": true,
+   "diff": []
+  },
+  {
+   "case": "feedback_override.yaml",
+   "name": "a person's settled amount replaces ours",
+   "pass": true,
+   "diff": []
+  },
+  {
+   "case": "injection_ignored.yaml",
+   "name": "a planted instruction to automated systems changes nothing",
+   "pass": true,
+   "diff": []
+  },
+  {
+   "case": "no_tracking_autonomous.yaml",
+   "name": "autonomous mode doesn't send a dispute priced on an invoice date",
+   "pass": true,
+   "diff": []
+  },
+  {
+   "case": "notice_outsider.yaml",
+   "name": "a rate notice from a sender with no rates authority is not a conflict",
+   "pass": true,
+   "diff": []
+  },
+  {
+   "case": "qs_leaves_out_duties.yaml",
+   "name": "qualifying spend leaves out duty and tax",
+   "pass": true,
+   "diff": []
+  },
+  {
+   "case": "renewal_email_no_extension.yaml",
+   "name": "a renewal offer by email doesn't extend the agreement",
+   "pass": true,
+   "diff": []
+  },
+  {
+   "case": "sample_conflict.yaml",
+   "name": "amendment and rate notice disagree",
+   "pass": true,
+   "diff": []
+  },
+  {
+   "case": "sample_overcharge.yaml",
+   "name": "wrong rate on one freight line",
+   "pass": true,
+   "diff": []
+  },
+  {
+   "case": "waiver_other_awb.yaml",
+   "name": "a waiver from the right person for another waybill",
+   "pass": true,
+   "diff": []
+  },
+  {
+   "case": "waiver_outsider.yaml",
+   "name": "a waiver from a sender with no waiver authority",
+   "pass": true,
+   "diff": []
+  }
+ ]
+}

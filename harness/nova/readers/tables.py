@@ -13,13 +13,14 @@ import re
 
 from .. import config
 from .. import normalize as norm
-from ..llm import Gateway
+from ..llm import Gateway, LLMFailed
 from . import values as v
-from .base import COMMON_RULES, STR, DocContext, FactOut, ReadOutcome, call, tool
+from .base import COMMON_RULES, STR, SUMMARY_FIELD, SUMMARY_RULE, DocContext, FactOut, ReadOutcome, call, tool
 from .billing import BillingReader
+from .general import GeneralReader
 from ..intake.sheets import SEP, _cell_text
 
-VERSION = "tables-v2"
+VERSION = "tables-v3"
 SAMPLE_ROWS = 15
 
 SYSTEM = COMMON_RULES + """
@@ -36,7 +37,8 @@ After the rows you also see every distinct value of the sheet's short text colum
 
 Statuses: paid (payment made), scheduled (approved for a payment run but not yet paid), open (unpaid and not scheduled), disputed (payment withheld because of a dispute), cancelled (void, or credited in full), other.
 
-""" + v.EVENT_HELP + "\n\n" + v.CAUSE_HELP
+
+In columns, give each field the number of the column that holds it; leave out (or give null for) a field the sheet has no column for.""" + SUMMARY_RULE + v.EVENT_HELP + "\n\n" + v.CAUSE_HELP
 
 COLUMN_FIELDS = ("awb", "event", "date", "station", "reason_code", "invoice", "invoice_date", "due_date", "amount",
                  "currency", "status", "paid_date")
@@ -44,7 +46,7 @@ COLUMN_FIELDS = ("awb", "event", "date", "station", "reason_code", "invoice", "i
 TOOL = tool("record_sheet_layout", "Record what a sheet is and which column holds what.", {
     "table_type": {"enum": ["tracking_export", "payment_ledger", "statement", "rate_table", "other"]},
     "header_row": {"type": "integer"},
-    "columns": {"type": "object", "properties": {f: {"type": "integer"} for f in COLUMN_FIELDS}},
+    "columns": {"type": "object", "properties": {f: {"type": ["integer", "null"]} for f in COLUMN_FIELDS}},
     "as_of": STR,
     "value_meanings": {"type": "object", "properties": {
         "events": {"type": "array", "items": {"type": "object", "properties": {
@@ -54,6 +56,7 @@ TOOL = tool("record_sheet_layout", "Record what a sheet is and which column hold
         "reason_codes": {"type": "array", "items": {"type": "object", "properties": {
             "printed": STR, "cause": {"enum": v.CAUSES}}, "required": ["printed", "cause"]}}}},
     "notes": STR,
+    "summary": SUMMARY_FIELD,
 }, ["table_type"])
 
 
@@ -132,7 +135,7 @@ class TablesReader:
                 continue
             sample = "\n".join(f"row {r}: " + " ".join(f"[{i}] {c!r}" for i, c in enumerate(cells) if c)
                                for r, cells in rows[:SAMPLE_ROWS])
-            hints = f"(Context: file {ctx.filename!r}"
+            hints = f"(Note from the audit system: file {ctx.filename!r}"
             if ctx.parent_email:
                 hints += f", attached to an email with subject {ctx.parent_email.get('subject')!r}"
             content = (f"{hints}; sheet {index} {title!r}, {len(rows)} non-empty rows.)\n<sheet>\n{sample}\n</sheet>\n"
@@ -141,24 +144,37 @@ class TablesReader:
                           tool_def=TOOL, content=content, max_tokens=800)
             kind = layout.get("table_type") or "other"
             kinds.append(kind)
+            page = next(((n, t, s) for n, t, s in ctx.pages if n == index), None)
+            sub = DocContext(ctx.doc_id, ctx.doc_ref, ctx.format, ctx.filename, ctx.received_at,
+                             [page] if page else [], ctx.doc_type, ctx.email, ctx.parent_email,
+                             known_contracts=ctx.known_contracts)
             if kind == "statement":
-                page = next(((n, t, s) for n, t, s in ctx.pages if n == index), None)
-                sub = DocContext(ctx.doc_id, ctx.doc_ref, ctx.format, ctx.filename, ctx.received_at,
-                                 [page] if page else [], ctx.doc_type, ctx.email, ctx.parent_email)
-                billed = BillingReader().read(sub, gateway)
-                out.facts += billed.facts
-                out.warnings += billed.warnings
-                out.input_tokens += billed.input_tokens
-                out.output_tokens += billed.output_tokens
+                self._absorb(out, BillingReader().read(sub, gateway))
             elif kind in ("tracking_export", "payment_ledger"):
                 facts, problems = parse_rows(kind, index, rows, layout, ctx)
                 out.facts += facts
                 out.warnings += problems
             else:
-                out.warnings.append(f"sheet {index} ({title!r}) is a {kind}; nothing read from it")
+                # a sheet of no standard layout (or a rate table on its own): read it like any unknown document,
+                # so nothing in it is skipped
+                try:
+                    self._absorb(out, GeneralReader().read(sub, gateway))
+                except LLMFailed as e:     # one unreadable sheet mustn't cost the others
+                    out.warnings.append(f"sheet {index} ({title!r}) couldn't be read: {e}")
         out.doc_type = "+".join(sorted(set(kinds))) or None
-        out.status = "partial" if any(w for w in out.warnings if "nothing read" not in w) else "ok"
+        out.status = "partial" if out.warnings else "ok"
         return out
+
+    @staticmethod
+    def _absorb(out: ReadOutcome, other: ReadOutcome) -> None:
+        out.facts += other.facts
+        out.warnings += other.warnings
+        out.input_tokens += other.input_tokens
+        out.output_tokens += other.output_tokens
+        out.repaired = out.repaired or other.repaired
+        out.summary = out.summary or other.summary
+        if other.status == "failed" and other.error:
+            out.warnings.append(other.error)
 
 
 def parse_rows(kind: str, page: int, rows: list[tuple[int, list[str]]], layout: dict,

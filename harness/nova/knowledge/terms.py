@@ -62,6 +62,10 @@ class Conflict:
     options: list[Decided]
     why: str
     sources: list[Source] = field(default_factory=list)   # the clause that leaves them unranked, if one does
+    # "sources": documents with authority disagree and the contract doesn't rank them (the glossary's conflict).
+    # "reading": one document gives two values for the same thing on the same date and nothing read from it says
+    # which applies - our reading is unsure, not the documents. Pricing then claims only what is true either way.
+    kind: str = "sources"
 
 
 @dataclass
@@ -119,6 +123,21 @@ def cited_name(name: str | None) -> str:
 
 def _newest(sources: list[Source]) -> Source:
     return max(sources, key=lambda s: (s.fact.valid_from or "", s.fact.known_at, s.fact.id))
+
+
+def _tied(sources: list[Source], value) -> list[Source]:
+    """The newest sources (same start date, same arrival) when they give different values. Code has no ground to
+    choose between them, so it must not pick one: the caller says it can't decide instead of taking the last row."""
+    if len(sources) < 2:
+        return []
+    top = max((s.fact.valid_from or "", s.fact.known_at) for s in sources)
+    tied = [s for s in sources if (s.fact.valid_from or "", s.fact.known_at) == top]
+    return tied if len({str(value(s)) for s in tied}) > 1 else []
+
+
+def _option(src: Source) -> str:
+    period = src.fact.payload.get("period_label")
+    return f"{_describe(src)}, " + (f"period {period}" if period else f"row {src.fact.id}")
 
 
 def _describe(src: Source) -> str:
@@ -213,6 +232,11 @@ class Terms:
 
         formal = _newest(over) if over else (_newest(base) if base else None)
         notice = _newest(notices) if notices else None
+        tied = _tied(over or base, lambda s: dec(s.fact.payload.get("rate")))
+        if tied and (notice is None or over):
+            return Conflict([decided(s, _option(s)) for s in tied],
+                            f"{_describe(tied[0])} gives {len(tied)} different {kind.replace('_', ' ')} rates for {lane} "
+                            f"on {on} and nothing read from it says which applies", kind="reading")
         if notice is None and formal is None:
             return Undefined(f"no {kind.replace('_', ' ')} rate for {lane} on {on}" +
                              (f" in band {weight} kg" if weight is not None else ""), ignored)
@@ -320,6 +344,10 @@ class Terms:
         if not found:
             return Undefined(f"{contract} has no fuel surcharge for {month}")
         src = max(found, key=lambda s: (-s.level, s.fact.known_at, s.fact.id))
+        same = [s for s in found if (s.level, s.fact.known_at) == (src.level, src.fact.known_at)]
+        if len({str(dec(s.fact.payload.get("pct"))) for s in same}) > 1:
+            return Undefined(f"{src.fact.doc_ref} gives different fuel surcharges for {month} and nothing says which "
+                             "applies")
         return Decided(dec(src.fact.payload.get("pct")), [src], f"Annex C {month}")
 
     def fx(self, contract: str, month: str) -> Result:
@@ -327,6 +355,10 @@ class Terms:
         found = self._monthly("fx_rate", contract, month)
         if found:
             src = max(found, key=lambda s: (-s.level, s.fact.known_at, s.fact.id))
+            same = [s for s in found if (s.level, s.fact.known_at) == (src.level, src.fact.known_at)]
+            if len({str(dec(s.fact.payload.get("rate"))) for s in same}) > 1:
+                return Undefined(f"{src.fact.doc_ref} gives different exchange rates for {month} and nothing says "
+                                 "which applies")
             return Decided(dec(src.fact.payload.get("rate")), [src], f"Annex F {month}")
         refs = [r for r in self.view.get("doc_reference", contract_id=contract)
                 if r.payload.get("category") == "treasury" or "annex f" in str(r.payload.get("name_as_cited")).lower()]
@@ -342,6 +374,9 @@ class Terms:
         found = self._formal(rows, on)
         if not found:
             return Undefined(f"{contract} has no Annex D fee for {code} on {on}")
+        if _tied(found, lambda s: (s.fact.payload.get("fee"), s.fact.payload.get("basis"))):
+            return Undefined(f"{found[0].fact.doc_ref} gives different Annex D fees for {code} on {on} and nothing "
+                             "says which applies")
         src = _newest(found)
         return Decided(src.fact.payload, [src], f"Annex D {code}")
 

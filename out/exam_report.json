@@ -1,0 +1,556 @@
+{
+ "schema_version": "1.0",
+ "as_of": "2031-02-28",
+ "mode": "supervised",
+ "findings": [
+  {
+   "id": "duplicate:CDU-3051273",
+   "class": "duplicate",
+   "invoice_id": "CDU-3051273",
+   "verdict": "finding",
+   "amount_usd": "3235.24",
+   "amount_range": null,
+   "deadline": null,
+   "action": "draft:dispute",
+   "confidence": 0.91,
+   "evidence": [
+    {
+     "doc": "batch_01/0017.eml#CDU-3051273.pdf",
+     "page": 1,
+     "quote": "Charges advice CDU-3051273",
+     "role": "the invoice",
+     "detail": "the copy sent again"
+    },
+    {
+     "doc": "batch_01/0017.eml",
+     "page": 1,
+     "quote": "Our records show invoice CDU-3051273 as outstanding. Please process payment at your earliest convenience.",
+     "role": "request for payment",
+     "detail": "asks for payment"
+    },
+    {
+     "doc": "batch_02/0023.eml#ap-register-2031-02-28.xlsx",
+     "page": 1,
+     "quote": "CDU-3051273 | 2030-07-29 | due 2030-08-28 | USD 3235.24 | paid | 2030-08-27",
+     "role": "payment register",
+     "detail": "the register shows it paid"
+    },
+    {
+     "doc": "batch_01/0013.eml#CDU-3051273.pdf",
+     "page": 1,
+     "quote": "Charges advice CDU-3051273",
+     "role": "the invoice",
+     "detail": "the first copy"
+    }
+   ],
+   "missing_doc": null,
+   "supersedes": [],
+   "learned_at": null,
+   "recipient": {
+    "person": "Greta Quigley",
+    "role": "Billing Disputes Lead",
+    "party": "CDA-US",
+    "email": "greta.quigley@caldrith.example"
+   },
+   "explanation": [
+    "Invoice CDU-3051273 bills USD 3235.24 that was already billed (the invoice was paid and then sent again asking for payment).",
+    "First copy batch_01/0013.eml#CDU-3051273.pdf; the payment register shows it paid 2030-08-27; sent again batch_01/0017.eml#CDU-3051273.pdf asking for payment"
+   ]
+  },
+  {
+   "id": "duplicate:CDU-3051313",
+   "class": "duplicate",
+   "invoice_id": "CDU-3051313",
+   "verdict": "finding",
+   "amount_usd": "52.70",
+   "amount_range": null,
+   "deadline": null,
+   "action": "draft:dispute",
+   "confidence": 0.88,
+   "evidence": [
+    {
+     "doc": "batch_02/0007.eml#CDU-3051313.pdf",
+     "page": 1,
+     "quote": "USE2-INS2 CA96669138-H2 Delivery fee (MAWB CA96669138) 1 shpt 52.70 52.70 26/09/2030",
+     "role": "billed line",
+     "detail": "billed again"
+    },
+    {
+     "doc": "batch_02/0006.eml#CDU-3051304.pdf",
+     "page": 1,
+     "quote": "USE2-INS2 CA96669138-H1 Delivery fee (MAWB CA96669138) 1 shpt 52.70 52.70 26/09/2030",
+     "role": "billed line",
+     "detail": "first billed on CDU-3051304"
+    }
+   ],
+   "missing_doc": null,
+   "supersedes": [],
+   "learned_at": null,
+   "recipient": {
+    "person": "Greta Quigley",
+    "role": "Billing Disputes Lead",
+    "party": "CDA-US",
+    "email": "greta.quigley@caldrith.example"
+   },
+   "explanation": [
+    "Invoice CDU-3051313 bills USD 52.70 that was already billed (the same charge was billed on an earlier invoice).",
+    "Delivery fee (MAWB CA96669138) (DLV) on CA96669138: 52.70, already billed on CDU-3051304 as 'Delivery fee (MAWB CA96669138)' (52.70), same waybill, charge code and amount",
+    "Billed twice: 52.70 = 52.70"
+   ]
+  },
+  {
+   "id": "overcharge:CDI-3031-0306",
+   "class": "overcharge",
+   "invoice_id": "CDI-3031-0306",
+   "verdict": "finding",
+   "amount_usd": "85.46",
+   "amount_range": null,
+   "deadline": null,
+   "action": "draft:dispute",
+   "confidence": 0.82,
+   "evidence": [
+    {
+     "doc": "batch_02/0016.eml#CDI-3031-0306.pdf",
+     "page": 1,
+     "quote": "INE2-USW1 | CA68214550 | Air freight | 274 kg | 330.42 | 90,535.08 | 06/01/2031",
+     "role": "billed line",
+     "detail": "the billed line"
+    },
+    {
+     "doc": "batch_01/0001.eml#MSA-CDA-IN-EXP-E91.pdf",
+     "page": 8,
+     "quote": "INE2-USW1 100-299.5 kg 323.51 308.76",
+     "role": "contract rate (Annex A)",
+     "detail": "signed msa CDA-IN-EXP-E91"
+    },
+    {
+     "doc": "batch_02/0022.eml#tracking-2030-09-01.xlsx",
+     "page": 1,
+     "quote": "CA68214550 | PICKED_UP | 2031-01-06 | INE2 | -",
+     "role": "pickup date (tracking)",
+     "detail": "pickup date from the tracking export"
+    },
+    {
+     "doc": "batch_02/0016.eml#CDI-3031-0306.pdf",
+     "page": 1,
+     "quote": "INE2-USW1 | CA68214550 | Fuel surcharge | 90,535.08 | 25.33% | 22,932.54 | 06/01/2031",
+     "role": "billed line",
+     "detail": "the billed line"
+    },
+    {
+     "doc": "batch_01/0001.eml#MSA-CDA-IN-EXP-E91.pdf",
+     "page": 9,
+     "quote": "2031-01 25.33%",
+     "role": "fuel surcharge (Annex C)",
+     "detail": "signed msa CDA-IN-EXP-E91"
+    }
+   ],
+   "missing_doc": null,
+   "supersedes": [],
+   "learned_at": null,
+   "recipient": {
+    "person": "Niall Ashdown",
+    "role": "Billing Disputes Lead",
+    "party": "CDA-IN",
+    "email": "niall.ashdown@caldrith.example"
+   },
+   "explanation": [
+    "Invoice CDI-3031-0306 was billed USD 85.46 (INR 7438.14) above the contract price.",
+    "Air freight (FRT) on CA68214550: billed 90535.08, should be 84600.24. MSA CDA-IN-EXP-E91 Annex A: 308.76 per kg for INE2-USW1, band 100-299.5 kg, on the pickup date 2031-01-06",
+    "308.76 x 274 kg = 84600.24",
+    "Fuel surcharge (FUEL) on CA68214550: billed 22932.54, should be 21429.24. 25.33% fuel for 2031-01 on the correct freight",
+    "25.33% x 84600.24 = 21429.24",
+    "Pickup date of CA68214550: 2031-01-06, from the tracking export",
+    "Total billed above the contract price: 7438.14 INR",
+    "Converted once at 87.04 INR per USD (Annex F 2031-01, the month of the invoice date)"
+   ]
+  },
+  {
+   "id": "overcharge:CDU-3051266",
+   "class": "overcharge",
+   "invoice_id": "CDU-3051266",
+   "verdict": "finding",
+   "amount_usd": "244.37",
+   "amount_range": null,
+   "deadline": null,
+   "action": "draft:dispute",
+   "confidence": 0.87,
+   "evidence": [
+    {
+     "doc": "batch_01/0010.eml#CDU-3051266.pdf",
+     "page": 1,
+     "quote": "USC1-INW1 CA53442004 Air freight 547 kg 7.16 3,916.52",
+     "role": "billed line",
+     "detail": "the billed line"
+    },
+    {
+     "doc": "batch_01/0003.eml#MSA-CDA-US-EXP-E91.pdf",
+     "page": 8,
+     "quote": "USC1-INW1 300+ kg 6.79 7.24",
+     "role": "contract rate (Annex A)",
+     "detail": "signed msa CDA-US-EXP-E91"
+    },
+    {
+     "doc": "batch_01/0016.eml#tracking-2030-01-01.xlsx",
+     "page": 1,
+     "quote": "CA53442004 | PICKED_UP | 2030-06-19 | USC1 | -",
+     "role": "pickup date (tracking)",
+     "detail": "pickup date from the tracking export"
+    },
+    {
+     "doc": "batch_01/0010.eml#CDU-3051266.pdf",
+     "page": 1,
+     "quote": "USC1-INW1 CA53442004 Fuel surcharge 3,916.52 20.74% 812.29",
+     "role": "billed line",
+     "detail": "the billed line"
+    },
+    {
+     "doc": "batch_01/0003.eml#MSA-CDA-US-EXP-E91.pdf",
+     "page": 9,
+     "quote": "2030-06 20.74%",
+     "role": "fuel surcharge (Annex C)",
+     "detail": "signed msa CDA-US-EXP-E91"
+    }
+   ],
+   "missing_doc": null,
+   "supersedes": [],
+   "learned_at": null,
+   "recipient": {
+    "person": "Greta Quigley",
+    "role": "Billing Disputes Lead",
+    "party": "CDA-US",
+    "email": "greta.quigley@caldrith.example"
+   },
+   "explanation": [
+    "Invoice CDU-3051266 was billed USD 244.37 above the contract price.",
+    "Air freight (FRT) on CA53442004: billed 3916.52, should be 3714.13. MSA CDA-US-EXP-E91 Annex A: 6.79 per kg for USC1-INW1, band 300+ kg, on the pickup date 2030-06-19",
+    "6.79 x 547 kg = 3714.13",
+    "Fuel surcharge (FUEL) on CA53442004: billed 812.29, should be 770.31. 20.74% fuel for 2030-06 on the correct freight",
+    "20.74% x 3714.13 = 770.31",
+    "Pickup date of CA53442004: 2030-06-19, from the tracking export",
+    "Total billed above the contract price: 244.37 USD"
+   ]
+  },
+  {
+   "id": "overcharge:CDU-3051286",
+   "class": "overcharge",
+   "invoice_id": "CDU-3051286",
+   "verdict": "finding",
+   "amount_usd": "151.64",
+   "amount_range": null,
+   "deadline": null,
+   "action": "draft:dispute",
+   "confidence": 0.87,
+   "evidence": [
+    {
+     "doc": "batch_02/0003.eml#CDU-3051286.pdf",
+     "page": 1,
+     "quote": "USW2-USW1 CA66924094 Air freight 254 kg 5.15 1,308.10 15/09/2030",
+     "role": "billed line",
+     "detail": "the billed line"
+    },
+    {
+     "doc": "batch_01/0003.eml#MSA-CDA-US-EXP-E91.pdf",
+     "page": 8,
+     "quote": "USW2-USW1 100-299.5 kg 4.65 4.95",
+     "role": "contract rate (Annex A)",
+     "detail": "signed msa CDA-US-EXP-E91"
+    },
+    {
+     "doc": "batch_02/0022.eml#tracking-2030-09-01.xlsx",
+     "page": 1,
+     "quote": "CA66924094 | PICKED_UP | 2030-09-15 | USW2 | -",
+     "role": "pickup date (tracking)",
+     "detail": "pickup date from the tracking export"
+    },
+    {
+     "doc": "batch_02/0003.eml#CDU-3051286.pdf",
+     "page": 1,
+     "quote": "USW2-USW1 CA66924094 Fuel surcharge 1,308.10 19.40% 253.77 15/09/2030",
+     "role": "billed line",
+     "detail": "the billed line"
+    },
+    {
+     "doc": "batch_01/0003.eml#MSA-CDA-US-EXP-E91.pdf",
+     "page": 9,
+     "quote": "2030-09 19.40%",
+     "role": "fuel surcharge (Annex C)",
+     "detail": "signed msa CDA-US-EXP-E91"
+    }
+   ],
+   "missing_doc": null,
+   "supersedes": [],
+   "learned_at": null,
+   "recipient": {
+    "person": "Greta Quigley",
+    "role": "Billing Disputes Lead",
+    "party": "CDA-US",
+    "email": "greta.quigley@caldrith.example"
+   },
+   "explanation": [
+    "Invoice CDU-3051286 was billed USD 151.64 above the contract price.",
+    "Air freight (FRT) on CA66924094: billed 1308.10, should be 1181.10. MSA CDA-US-EXP-E91 Annex A: 4.65 per kg for USW2-USW1, band 100-299.5 kg, on the pickup date 2030-09-15",
+    "4.65 x 254 kg = 1181.10",
+    "Fuel surcharge (FUEL) on CA66924094: billed 253.77, should be 229.13. 19.40% fuel for 2030-09 on the correct freight",
+    "19.40% x 1181.10 = 229.13",
+    "Pickup date of CA66924094: 2030-09-15, from the tracking export",
+    "Total billed above the contract price: 151.64 USD"
+   ]
+  },
+  {
+   "id": "overcharge:CDU-3051297",
+   "class": "overcharge",
+   "invoice_id": "CDU-3051297",
+   "verdict": "finding",
+   "amount_usd": "155.65",
+   "amount_range": null,
+   "deadline": null,
+   "action": "draft:dispute",
+   "confidence": 0.87,
+   "evidence": [
+    {
+     "doc": "batch_02/0004.eml#CDU-3051297.pdf",
+     "page": 1,
+     "quote": "USE2-INS2 CA24035181 DG handling 1 shpt 155.65 155.65 20/09/2030",
+     "role": "billed line",
+     "detail": "the billed line"
+    },
+    {
+     "doc": "batch_01/0003.eml#MSA-CDA-US-EXP-E91.pdf",
+     "page": 10,
+     "quote": "DG Dangerous goods fee 155.65 USD per shipment",
+     "role": "contract fee (Annex D)",
+     "detail": "signed msa CDA-US-EXP-E91"
+    },
+    {
+     "doc": "batch_02/0004.eml#DGD-CA24035181.pdf",
+     "page": 1,
+     "quote": "SHIPPER'S DECLARATION FOR AWB CA24035181 Goods: lyophilised enzyme batches",
+     "role": "dangerous goods declaration",
+     "detail": "the shipper's declaration"
+    },
+    {
+     "doc": "batch_02/0022.eml#tracking-2030-09-01.xlsx",
+     "page": 1,
+     "quote": "CA24035181 | PICKED_UP | 2030-09-20 | USE2 | -",
+     "role": "pickup date (tracking)",
+     "detail": "pickup date from the tracking export"
+    }
+   ],
+   "missing_doc": null,
+   "supersedes": [],
+   "learned_at": null,
+   "recipient": {
+    "person": "Greta Quigley",
+    "role": "Billing Disputes Lead",
+    "party": "CDA-US",
+    "email": "greta.quigley@caldrith.example"
+   },
+   "explanation": [
+    "Invoice CDU-3051297 was billed USD 155.65 above the contract price.",
+    "DG handling (DG) on CA24035181: billed 155.65, should be 0.00. dry ice used as a refrigerant doesn't attract the DG fee",
+    "Pickup date of CA24035181: 2030-09-20, from the tracking export",
+    "Total billed above the contract price: 155.65 USD"
+   ]
+  },
+  {
+   "id": "waived_but_billed:CDU-3051259",
+   "class": "waived_but_billed",
+   "invoice_id": "CDU-3051259",
+   "verdict": "finding",
+   "amount_usd": "52.70",
+   "amount_range": null,
+   "deadline": null,
+   "action": "draft:dispute",
+   "confidence": 0.89,
+   "evidence": [
+    {
+     "doc": "batch_01/0007.eml",
+     "page": 1,
+     "quote": "Please treat the Delivery fee on AWB CA10343321 as waived.",
+     "role": "waiver",
+     "detail": "the waiver"
+    },
+    {
+     "doc": "batch_01/0003.eml#MSA-CDA-US-EXP-E91.pdf",
+     "page": 11,
+     "quote": "Thea Kapadia, Customer Finance Lead, CDA-US: waivers, payment_terms <thea.kapadia@caldrith.example>",
+     "role": "authority (Schedule 1)",
+     "detail": "Schedule 1"
+    },
+    {
+     "doc": "batch_01/0008.eml#CDU-3051259.pdf",
+     "page": 1,
+     "quote": "USE2-INS2 CA10343321 Delivery fee 1 shpt 52.70 52.70 07/06/2030",
+     "role": "billed line",
+     "detail": "the billed line"
+    }
+   ],
+   "missing_doc": null,
+   "supersedes": [],
+   "learned_at": null,
+   "recipient": {
+    "person": "Greta Quigley",
+    "role": "Billing Disputes Lead",
+    "party": "CDA-US",
+    "email": "greta.quigley@caldrith.example"
+   },
+   "explanation": [
+    "Invoice CDU-3051259 bills USD 52.70 of charges the carrier waived in writing.",
+    "Delivery fee on CA10343321: 52.70 billed, waived by Thea Kapadia on 2030-06-07 (Thea Kapadia is on Schedule 1 for waivers)"
+   ]
+  },
+  {
+   "id": "waived_but_billed:CDU-3051323",
+   "class": "waived_but_billed",
+   "invoice_id": "CDU-3051323",
+   "verdict": "finding",
+   "amount_usd": "52.70",
+   "amount_range": null,
+   "deadline": null,
+   "action": "draft:dispute",
+   "confidence": 0.89,
+   "evidence": [
+    {
+     "doc": "batch_02/0009.eml",
+     "page": 1,
+     "quote": "The Delivery fee billed against AWB CA75329761 is waived, with our apologies.",
+     "role": "waiver",
+     "detail": "the waiver"
+    },
+    {
+     "doc": "batch_01/0003.eml#MSA-CDA-US-EXP-E91.pdf",
+     "page": 11,
+     "quote": "Thea Kapadia, Customer Finance Lead, CDA-US: waivers, payment_terms <thea.kapadia@caldrith.example>",
+     "role": "authority (Schedule 1)",
+     "detail": "Schedule 1"
+    },
+    {
+     "doc": "batch_02/0011.eml#CDU-3051323.pdf",
+     "page": 1,
+     "quote": "USE2-INW1 CA75329761 Delivery fee 1 shpt 52.70 52.70 14/10/2030",
+     "role": "billed line",
+     "detail": "the billed line"
+    }
+   ],
+   "missing_doc": null,
+   "supersedes": [],
+   "learned_at": null,
+   "recipient": {
+    "person": "Greta Quigley",
+    "role": "Billing Disputes Lead",
+    "party": "CDA-US",
+    "email": "greta.quigley@caldrith.example"
+   },
+   "explanation": [
+    "Invoice CDU-3051323 bills USD 52.70 of charges the carrier waived in writing.",
+    "Delivery fee on CA75329761: 52.70 billed, waived by Thea Kapadia on 2030-10-14 (Thea Kapadia is on Schedule 1 for waivers)"
+   ]
+  }
+ ],
+ "portfolio": {
+  "cashback": [
+   {
+    "id": "cashback:CDA-US-EXP-E91:2030-Q3:rebate",
+    "class": "cashback",
+    "contract_id": "CDA-US-EXP-E91",
+    "period": "2030-Q3",
+    "credit_type": "rebate",
+    "verdict": "finding",
+    "amount_usd": "4307.34",
+    "amount_range": null,
+    "deadline": "2030-11-14",
+    "action": "draft:claim_credit",
+    "confidence": 0.82,
+    "evidence": [
+     {
+      "doc": "batch_01/0003.eml#MSA-CDA-US-EXP-E91.pdf",
+      "page": 4,
+      "quote": "7.1 Volume rebate. The Carrier shall credit a rebate on each Quarter's Qualifying Spend (QS) at the tier reached: QS >= USD 77,000.00: 5%; QS >= USD 132,000.00: 7.5%; QS >= USD 208,000.00: 10%.",
+      "role": "contract clause",
+      "detail": "signed msa CDA-US-EXP-E91"
+     },
+     {
+      "doc": "batch_01/0003.eml#MSA-CDA-US-EXP-E91.pdf",
+      "page": 3,
+      "quote": "1.1 Qualifying Spend. Qualifying Spend means freight charges (base freight, fuel, security surcharge and Annex D accessorials) on invoices dated in the period, net of all credit notes dated in the period whatever invoice they reference (rebate and improvement credits excepted).",
+      "role": "contract clause",
+      "detail": "signed msa CDA-US-EXP-E91"
+     },
+     {
+      "doc": "batch_01/0012.eml#CDU-3051268.pdf",
+      "page": 1,
+      "quote": "Charges advice CDU-3051268",
+      "role": "the invoice",
+      "detail": "invoice in the quarter"
+     },
+     {
+      "doc": "batch_02/0002.eml#CDU-3051292.pdf",
+      "page": 1,
+      "quote": "Charges advice CDU-3051292",
+      "role": "the invoice",
+      "detail": "invoice in the quarter"
+     },
+     {
+      "doc": "batch_01/0013.eml#CDU-3051273.pdf",
+      "page": 1,
+      "quote": "Charges advice CDU-3051273",
+      "role": "the invoice",
+      "detail": "invoice in the quarter"
+     }
+    ],
+    "missing_doc": null,
+    "supersedes": [],
+    "learned_at": null,
+    "recipient": {
+     "person": "Greta Quigley",
+     "role": "Billing Disputes Lead",
+     "party": "CDA-US",
+     "email": "greta.quigley@caldrith.example"
+    },
+    "explanation": [
+     "CDA-US-EXP-E91 owes a rebate credit of USD 4307.34 for 2030-Q3, not yet credited; it is due now: claim it.",
+     "QS 2030-Q3 = 86146.83 from 7 invoice(s); tier rate 5",
+     "earned 4307.34, credited 0, owed 4307.34"
+    ]
+   }
+  ],
+  "expiry": [
+   {
+    "id": "expiry:CDA-US-EXP-E91",
+    "class": "expiry",
+    "contract_id": "CDA-US-EXP-E91",
+    "verdict": "finding",
+    "amount_usd": null,
+    "amount_range": null,
+    "deadline": "2031-04-01",
+    "action": "internal:alert",
+    "confidence": 0.94,
+    "evidence": [
+     {
+      "doc": "batch_01/0003.eml#MSA-CDA-US-EXP-E91.pdf",
+      "page": 3,
+      "quote": "2.2 Initial term. The initial term runs for 12 months and expires on 2031-04-01. 2.3 Auto-renewal. This Agreement does not continue after the initial term unless it is extended under clause 2.4.",
+      "role": "contract term",
+      "detail": "the term"
+     },
+     {
+      "doc": "batch_01/0003.eml#MSA-CDA-US-EXP-E91.pdf",
+      "page": 3,
+      "quote": "2.3 Auto-renewal. This Agreement does not continue after the initial term unless it is extended under clause 2.4.",
+      "role": "contract clause",
+      "detail": "signed msa CDA-US-EXP-E91"
+     }
+    ],
+    "missing_doc": null,
+    "supersedes": [],
+    "learned_at": null,
+    "explanation": [
+     "Contract CDA-US-EXP-E91: end of the term is 32 days after 2031-02-28. Act by 2031-04-01.",
+     "end of the term: 2031-04-01"
+    ]
+   }
+  ],
+  "late_fee_risk": []
+ }
+}

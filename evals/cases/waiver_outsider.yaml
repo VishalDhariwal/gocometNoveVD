@@ -1,0 +1,8 @@
+name: a waiver from a sender with no waiver authority
+mailbox: evals/mailboxes/waiver_outsider
+as_of: "2034-02-28"
+mode: supervised
+expect:
+  key: {invoice_id: TX-US-2033-5337, class: waived_but_billed}
+  verdict: no_finding
+why: the same waiver as the worked example, but sent by the carrier's ops desk, which is on no Schedule 1 (MSA 11.1 makes Schedule 1 the only waiver authority), so the delivery fee is owed

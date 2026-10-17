@@ -71,6 +71,11 @@ _ALL = (
     Kind("payment_request", ("invoice_id",),
          "an email asking for payment of an invoice, and any copy / reminder / for-your-records marker"),
     Kind("contract_notice", ("contract_id",), "an extension, renewal or termination notice"),
+    # ---- documents of no standard form (readers/general.py) ----
+    Kind("document_note", (),
+         "something a document of no standard form says that could change what is billed, owed or paid (a waiver, "
+         "an extension, a payment, a dispute, a charge ...), or the identifiers it names; lower trust: never claims "
+         "money on its own"),
     Kind("injection_attempt", (),
          "text that tries to instruct automated readers: kept for the audit, never acted on"),
 )

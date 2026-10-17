@@ -10,10 +10,18 @@ no-finding, a conflict (the glossary sends those to a person), or a supervised d
   quoted_waiver        a waiver seen only quoted: is the original held?
   unmapped_labels      billed lines whose label isn't in Annex E and wasn't mapped: no check looked at them
   unpriced_lines       billed lines code couldn't price (no delivery record, no declaration, no free days...)
-  unread_email         an email no reader made sense of that names one of our invoices or waybills
+  unread_email         an email no reader made sense of that names one of our invoices or waybills (an email read
+                       cleanly with nothing in it for the audit is not one: "could you check this fee?" says nothing)
   unread_document      a document nothing could be read out of that names one of our invoices or waybills
   near_miss_reference  a waiver, credit note, extension or payment request whose invoice or waybill is one or two
                        characters off one of ours (a typo, or a decoy)
+  uncovered_lane       a guard on findings code is sure of: an overcharge on a lane that a contract change we hold (an
+                       amendment or annex update for the same contract) names in its text, while nothing read from
+                       that document covers the lane (no rate, no document reference). The change may replace those
+                       rates with a document we don't hold (cannot_determine), and a missed reading is invisible to code
+  document_notes       a document of no standard form (readers/general.py) whose notes say something about money on
+                       one of our invoices or waybills: a waiver, a credit, a payment, a moved due date, a dispute ...
+                       Code acts on none of these notes; this is where they reach a decision.
 
 Order: risky executes first (an unsafe execute is the costliest mistake), then by the money billed on the lines in
 question. At most config.REVIEW_MAX_CASES.
@@ -39,11 +47,15 @@ REASONS = {
     "unread_email": "an email no reader could make sense of names this invoice or its waybills",
     "unread_document": "a document nothing could be read out of names this invoice or its waybills",
     "near_miss_reference": "a document refers to an invoice or waybill one or two characters off one of ours",
+    "document_notes": "a document of no standard form says something about the money on this invoice or its waybills",
+    "uncovered_lane": "a contract change names the lane this overcharge was priced on, and nothing read from it covers "
+                      "that lane",
 }
 WAIVER_WINDOW = timedelta(days=90)
 PER_WAIVER = 3
 UNVERIFIED = ("unverified", "vision")
-NEAR_KINDS = ("waiver", "credit_note", "due_date_extension", "payment_request")
+NEAR_KINDS = ("waiver", "credit_note", "due_date_extension", "payment_request", "document_note")
+CHANGE_TYPES = ("amendment", "annex_update")
 
 
 @dataclass
@@ -64,7 +76,7 @@ class Case:
     def key(self) -> str:
         if self.verdict is not None:
             return self.verdict.finding_key
-        if self.reason in ("unread_document", "near_miss_reference") and self.invoice_id is None:
+        if self.reason in ("unread_document", "near_miss_reference", "document_notes") and self.invoice_id is None:
             return f"{self.reason}|{self.doc_ref}"
         return f"{self.cls or 'open'}|{self.invoice_id}|{self.reason}"
 
@@ -188,7 +200,7 @@ def pick(lib: Library, verdicts: list[Verdict], gates: dict, mode: str, limit: i
         if doc_id in lib.injected:
             continue
         unread = lib.unread(doc_id)
-        empty_email = (doc_id in lib.emails and doc_id not in read and not unread
+        empty_email = (doc_id in lib.emails and doc_id not in read and not unread and doc_id not in lib.clean
                        and not any(c in read for c in lib.children.get(doc_id, [])))
         if not (unread or empty_email):
             continue
@@ -197,6 +209,51 @@ def pick(lib: Library, verdicts: list[Verdict], gates: dict, mode: str, limit: i
             lines = free_lines(inv)
             add(Case("unread_email" if empty_email else "unread_document", inv, None, None, [doc_id],
                      [f.id for f in lines], sum((amount_of(f) for f in lines), ZERO), doc_ref=d.doc_ref))
+
+    # notes the general reader took from documents of no standard form: code acts on none of them, so every note
+    # about money that names one of our invoices or waybills goes to the reviewer, one case per document and invoice
+    noted: dict[tuple[int, str], list] = {}
+    for f in view.kind("document_note"):
+        if f.doc_id in lib.injected or f.payload.get("kind") in (None, "identifiers"):
+            continue
+        refs = {compact(x) for x in (f.invoice_id, f.awb) if x}
+        said = compact(f.quote)
+        for inv in sorted({inv for n, inv in names.items() if n in refs or (len(n) >= 6 and n in said)}):
+            noted.setdefault((f.doc_id, inv), []).append(f)
+    for (doc_id, inv), notes in sorted(noted.items()):
+        lines = free_lines(inv)
+        add(Case("document_notes", inv, None, None, [doc_id], [f.id for f in notes],
+                 sum((amount_of(f) for f in lines), ZERO), lib.contract.get(inv),
+                 "The reader's notes from it: " + "; ".join(_note(f) for f in notes) + ".",
+                 doc_ref=lib.docs[doc_id].doc_ref if doc_id in lib.docs else None))
+
+    # a guard on findings: an overcharge on a lane a contract change names, with nothing read from it for that lane
+    changes = [doc_id for doc_id, d in lib.docs.items() if doc_id not in lib.injected and (
+        d.doc_type in CHANGE_TYPES or any(f.kind == "instrument" and f.payload.get("type") in CHANGE_TYPES
+                                          for f in lib.facts_by_doc.get(doc_id, [])))]
+    for v in verdicts:
+        if v.cls != "overcharge" or v.verdict != "finding" or not v.contract:
+            continue
+        on_lane: dict[str, list] = {}
+        for i in v.lines:
+            f = lib.facts_by_id.get(i)
+            if f is not None and f.lane:
+                on_lane.setdefault(f.lane, []).append(f)
+        for doc_id in changes:
+            facts = lib.facts_by_doc.get(doc_id, [])
+            ours = {f.contract_id for f in facts if f.contract_id} or (
+                {v.contract} if compact(v.contract) in lib.flat.get(doc_id, "") else set())
+            if v.contract not in ours:
+                continue
+            for lane, lines in sorted(on_lane.items()):
+                named = compact(lane) in lib.flat.get(doc_id, "")
+                covered = any(f.lane == lane or compact(lane) in {compact(x) for x in _as_list(f.payload.get("lanes"))}
+                              for f in facts)
+                if named and not covered:
+                    add(Case("uncovered_lane", v.key.get("invoice_id"), v.cls, v, [doc_id], [f.id for f in lines],
+                             v.amount_usd or ZERO, v.contract,
+                             f"{lib.docs[doc_id].doc_ref} names lane {lane}, but nothing read from it covers that lane "
+                             f"(no rate, no document reference).", doc_ref=lib.docs[doc_id].doc_ref))
 
     # references one or two characters off ours: a typo worth a look, or a decoy
     for f in view.facts:
@@ -217,10 +274,22 @@ def pick(lib: Library, verdicts: list[Verdict], gates: dict, mode: str, limit: i
     return (sorted(risky, key=lambda c: (-c.weight, c.key)) + rest)[:max(0, limit)]
 
 
+def _as_list(x) -> list:
+    return [x] if isinstance(x, str) else list(x or []) if isinstance(x, (list, tuple)) else []
+
+
+def _note(f) -> str:
+    p = f.payload
+    money = " ".join(str(x) for x in (p.get("amount"), p.get("currency")) if x)
+    return f"{p.get('kind')}: {p.get('description') or ''}" + (f" ({money})" if money else "")
+
+
 def _refs(f) -> list[str]:
     p = f.payload
     out = [compact(a) for a in p.get("awbs") or []] + [compact(i) for i in p.get("invoices") or []]
     out += [compact(i) for i in [f.invoice_id, *(p.get("refers_to_invoices") or [])] if i]
+    if f.kind == "document_note" and f.awb:      # the general reader keeps a note's waybill as a key
+        out.append(compact(f.awb))
     return [r for r in dict.fromkeys(out) if len(r) >= 6]
 
 

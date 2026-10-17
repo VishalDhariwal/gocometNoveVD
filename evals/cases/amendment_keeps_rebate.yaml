@@ -1,0 +1,10 @@
+name: an amendment that changes one lane's rates leaves the rebate alone
+mailbox: evals/mailboxes/amendment_keeps_rebate
+as_of: "2033-11-30"
+mode: supervised
+expect:
+  key: {contract_id: TBX-US-EXP-E58, period: 2033-Q2, credit_type: rebate, class: cashback}
+  verdict: finding
+  amount_usd: "3278.35"
+  action: draft:claim_credit
+why: the amendment replaces USE2-INE2 rates from 2033-10-15 and says "All other terms of the Agreement are unchanged"; practice runs 2 and 4 read it as switching the MSA's rebate off. Q2 spend 65566.99 x 5% = 3278.35

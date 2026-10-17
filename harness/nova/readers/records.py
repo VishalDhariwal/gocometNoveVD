@@ -5,16 +5,16 @@ from .. import config
 from .. import normalize as norm
 from ..llm import Gateway
 from . import values as v
-from .base import (AUTOMATION_FIELD, COMMON_RULES, QUOTE, STR, DocContext, FactOut, ReadOutcome, call, ground,
-                   injection_facts, plain, tool)
+from .base import (AUTOMATION_FIELD, COMMON_RULES, QUOTE, STR, SUMMARY_FIELD, SUMMARY_RULE, DocContext, FactOut,
+                   ReadOutcome, call, ground, injection_facts, plain, tool)
 
-VERSION = "records-v2"
+VERSION = "records-v3"
 
 SYSTEM = COMMON_RULES + """
 
 This is a shipping record: an air waybill, a master air waybill listing house shipments, a shipper's declaration for dangerous goods or dry ice, or a customs notice. Record what it says about the shipment: its waybill number, the master waybill if this is a house, where and when it was executed, origin and destination, pieces, actual and chargeable weight and dimensions as printed, and the goods. For a master waybill list every house with its pieces and chargeable weight. For a declaration list each dangerous-goods item with its UN number and class; mark is_dry_ice for dry ice (solid carbon dioxide, UN1845) and refrigerant_only when it is used only to keep other goods cold. For a customs notice record the hold and release dates, the station, the reason code and the reason as printed, and choose cause from the list below.
 
-""" + v.CAUSE_HELP
+""" + SUMMARY_RULE + v.CAUSE_HELP
 
 TOOL = tool("record_shipping_record", "Record what a waybill, declaration or customs notice says.", {
     "doc_kind": {"enum": ["awb", "master_awb", "dg_declaration", "customs_notice", "other"]},
@@ -31,6 +31,7 @@ TOOL = tool("record_shipping_record", "Record what a waybill, declaration or cus
                                                 "quote": QUOTE}},
     "quote": QUOTE,
     "automation_instructions": AUTOMATION_FIELD,
+    "summary": SUMMARY_FIELD,
 }, ["doc_kind", "automation_instructions"])
 
 
@@ -42,7 +43,8 @@ class RecordsReader:
         out = ReadOutcome(self.name, self.version)
         data = call(gateway, out, purpose="records", models=config.READER_MODELS, system=SYSTEM, tool_def=TOOL,
                     content=ctx.document_block(), max_tokens=4000)
-        out.facts, out.warnings = build(ctx, data)
+        out.facts, problems = build(ctx, data)
+        out.warnings = out.warnings + problems
         out.doc_type = data.get("doc_kind")
         out.status = "partial" if out.warnings else "ok"
         return out

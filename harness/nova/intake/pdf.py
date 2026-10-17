@@ -136,7 +136,9 @@ def _transcribe(page, number: int, total: int, gateway: Gateway, models: Sequenc
     except (LLMUnavailable, LLMFailed) as e:
         log.warning("page %d: vision transcription failed: %s", number, e)
         return PageText(number, "", "unread", error=str(e))
-    text = "\n".join(line.rstrip() for line in res.data["lines"] if line.strip())
+    text = "\n".join(line.rstrip() for line in res.data.get("lines") or [] if line.strip())
+    if not text.strip():     # an empty transcription is not a read page: leave it unread, to be tried again
+        return PageText(number, "", "unread", error="the transcription came back empty")
     return PageText(number, text, "vision", model=res.model, unreadable_marks=text.count("[?]"),
                     notes=res.data.get("notes", "").strip(), cached=res.cached)
 

@@ -36,10 +36,11 @@ log = logging.getLogger(__name__)
 
 DB_NAME = "nova.db"
 # (version, file). Append new files; never edit one that has shipped.
-MIGRATIONS: list[tuple[int, str]] = [(1, "schema_v1.sql"), (2, "schema_v2.sql"), (3, "schema_v3.sql")]
+MIGRATIONS: list[tuple[int, str]] = [(1, "schema_v1.sql"), (2, "schema_v2.sql"), (3, "schema_v3.sql"),
+                                     (4, "schema_v4.sql"), (5, "schema_v5.sql")]
 MIGRATIONS_LATEST = MIGRATIONS[-1][0]
 
-_DOC_FIELDS = {"doc_type", "doc_type_confidence", "status", "error", "is_scan"}
+_DOC_FIELDS = {"doc_type", "doc_type_confidence", "status", "error", "is_scan", "summary"}
 _KEY_NORMALISERS = {"contract_id": norm.code, "invoice_id": norm.invoice_id, "awb": norm.awb, "lane": norm.lane,
                     "party": norm.code, "person_email": norm.email, "period": lambda v: str(v).strip()}
 
@@ -351,7 +352,8 @@ class Store:
             return cur.lastrowid
 
     def finish_extraction(self, extraction_id: int, status: str, *, model: str | None = None,
-                          error: str | None = None, input_tokens: int = 0, output_tokens: int = 0) -> None:
+                          error: str | None = None, input_tokens: int = 0, output_tokens: int = 0,
+                          seconds: float | None = None) -> None:
         """Close a reader pass. 'ok' or 'partial' makes it the document's current pass; 'failed' leaves the previous
         current pass (if any) in place."""
         if status not in ("ok", "partial", "failed"):
@@ -362,8 +364,9 @@ class Store:
                 raise StoreError(f"extraction {extraction_id} isn't running")
             self.con.execute(
                 "UPDATE extractions SET status = ?, finished_at = ?, model = COALESCE(?, model), error = ?, "
-                "input_tokens = ?, output_tokens = ? WHERE id = ?",
-                (status, norm.utc_now(), model, error, input_tokens, output_tokens, extraction_id))
+                "input_tokens = ?, output_tokens = ?, seconds = ? WHERE id = ?",
+                (status, norm.utc_now(), model, error, input_tokens, output_tokens,
+                 None if seconds is None else round(seconds, 2), extraction_id))
             if status == "failed":
                 self.con.execute(
                     "UPDATE documents SET error = ?, status = CASE WHEN current_extraction_id IS NULL THEN 'failed' "
@@ -509,13 +512,14 @@ class Store:
             return cur.rowcount == 1
 
     def add_review(self, report_id: int, *, finding_key: str, reason: str, opinion: dict | None, outcome: str,
-                   detail: str = "", model: str | None = None, turns: int = 0) -> None:
+                   detail: str = "", model: str | None = None, turns: int = 0, seconds: float | None = None,
+                   input_tokens: int = 0, output_tokens: int = 0) -> None:
         with self.transaction():
             self.con.execute(
-                "INSERT INTO reviews(report_id, finding_key, reason, opinion, outcome, detail, model, turns, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO reviews(report_id, finding_key, reason, opinion, outcome, detail, model, turns, seconds, "
+                "input_tokens, output_tokens, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (report_id, finding_key, reason, None if opinion is None else dumps(opinion), outcome, detail, model,
-                 turns, norm.utc_now()))
+                 turns, None if seconds is None else round(seconds, 2), input_tokens, output_tokens, norm.utc_now()))
 
     def add_referrals(self, report_id: int, mode: str, as_of: str, refs) -> None:
         """The human review queue for one report (nova/review/route.Referral items)."""

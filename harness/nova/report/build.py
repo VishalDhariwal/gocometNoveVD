@@ -140,7 +140,8 @@ def _citations(checker: Citations, v: Verdict) -> tuple[list[dict], int, int]:
     return kept, good, dropped
 
 
-def build_report(store: Store, as_of: str, mode: str, report_id: int, gateway=None) -> dict:
+def build_report(store: Store, as_of: str, mode: str, report_id: int, gateway=None,
+                 deadline: float | None = None) -> dict:
     view = View.load(store, as_of)
     terms = Terms(view)
     verdicts = adjudicate(view, terms)
@@ -150,7 +151,8 @@ def build_report(store: Store, as_of: str, mode: str, report_id: int, gateway=No
     gates = policy.decide(terms, verdicts, mode, cited)
     reviewed = []
     if gateway is not None:
-        after, reviewed = review(store, gateway, terms, verdicts, mode=mode, gates=gates, report_id=report_id)
+        after, reviewed = review(store, gateway, terms, verdicts, mode=mode, gates=gates, report_id=report_id,
+                                 deadline=deadline)
         if after is not verdicts or reviewed:
             verdicts = after
             cites = {v.finding_key: _citations(checker, v) for v in verdicts if v.verdict in PRESENT}
@@ -169,6 +171,7 @@ def build_report(store: Store, as_of: str, mode: str, report_id: int, gateway=No
     prev_as_of = _previous_as_of(store, mode, report_id)
 
     rep = empty_report(as_of, mode)
+    unsettled = {case.key for case, out in reviewed if out.kind in ("failed", "rejected")}
     emitted = []
     for v in sorted((v for v in verdicts if v.verdict in PRESENT), key=lambda v: (v.cls, _key_str(v))):
         evidence, good, dropped = cites[v.finding_key]
@@ -190,7 +193,8 @@ def build_report(store: Store, as_of: str, mode: str, report_id: int, gateway=No
                 "amount_usd": _money(v.amount_usd) if v.verdict == "finding" else None,
                 "amount_range": [_money(x) for x in v.amount_range] if v.verdict == "conflict" else None,
                 "deadline": v.deadline, "action": gate.action,
-                "confidence": confidence.score(terms, v, dropped=dropped, kept=good),
+                "confidence": confidence.score(terms, v, dropped=dropped, kept=good,
+                                               unsettled=v.finding_key in unsettled),
                 "evidence": evidence, "missing_doc": v.missing_doc, "supersedes": supersedes,
                 "learned_at": _learned_at(terms, v, gate.action, base.get(v.finding_key),
                                           base_gates[v.finding_key].action if v.finding_key in base_gates else None)}

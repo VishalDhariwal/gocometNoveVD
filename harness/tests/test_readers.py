@@ -286,7 +286,9 @@ class Correspondence(unittest.TestCase):
                           waiver.payload["from_quoted_text"], waiver.verification),
                          ({"person_email": "elspeth.iyengar@tarrowby.example"}, ["TE97049901"], ["deliveryfee"],
                           False, "verified"))
-        self.assertEqual([f.kind for f in out.facts].count("injection_attempt"), 1)
+        # "Please disregard that charge if it appears on an invoice." is Elspeth's own request, not text aimed at a
+        # machine: it isn't kept as an injection (readers/base.py MACHINE)
+        self.assertEqual([f.kind for f in out.facts].count("injection_attempt"), 0)
 
     def test_a_rate_notice_becomes_rates_with_their_dates_and_sender(self):
         ctx = ctx_for("data/scenarios", "batch_01/0024.eml")
@@ -466,7 +468,9 @@ def routing_fake() -> Scripted:
         record_sheet_layout=[{"table_type": "payment_ledger", "header_row": 1,
                               "columns": {"invoice": 0, "invoice_date": 1, "due_date": 2, "amount": 3, "status": 4,
                                           "paid_date": 5}}],
-        record_email=[{"intents": [], "automation_instructions": []}])
+        record_email=[{"intents": [], "automation_instructions": []}],
+        record_document_contents=[{"summary": "A document of no standard form.", "events": [], "items": [],
+                                   "automation_instructions": []}])
 
 
 class Round(unittest.TestCase):

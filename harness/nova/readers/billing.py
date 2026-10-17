@@ -18,10 +18,10 @@ from .. import normalize as norm
 from ..llm import Gateway
 from ..money import pct_of, to_cents
 from . import values as v
-from .base import (AUTOMATION_FIELD, COMMON_RULES, QUOTE, STR, STR_LIST, DocContext, FactOut, ReadOutcome, call,
-                   ground, injection_facts, tool)
+from .base import (AUTOMATION_FIELD, COMMON_RULES, QUOTE, STR, STR_LIST, SUMMARY_FIELD, SUMMARY_RULE, DocContext,
+                   FactOut, ReadOutcome, call, ground, injection_facts, tool)
 
-VERSION = "billing-v2"
+VERSION = "billing-v3"
 
 SYSTEM = COMMON_RULES + """
 
@@ -37,11 +37,11 @@ For each line copy:
 - rate: as printed ("2.62", or "19.41%" for a percentage line)
 - amount: the line amount as printed
 - period: a billing period the line names (a statement's month)
-- refers_to_invoice: an invoice number the line refers to (for example a late fee charged on an earlier invoice)
+- refers_to_invoice: the invoice number the line refers to, whenever a line names another invoice: a late fee, interest, a credit or an adjustment on an earlier invoice. For a line printed "Late fee on INV-1234: USD 500.00 overdue, month 1", refers_to_invoice is INV-1234
 - reference: anything else the line says it refers to, copied as printed
 
 For a credit note, put the kind of credit, its period and its basis in `credit`.
-markers: words on the document that mark this copy, such as copy, duplicate, reminder, re-issued, for your records, pro forma, copied as printed; marker_kinds: the same as choices (copy, duplicate, reminder, for_your_records, reissued, pro_forma, other)."""
+markers: words on the document that mark this copy, such as copy, duplicate, reminder, re-issued, for your records, pro forma, copied as printed; marker_kinds: the same as choices (copy, duplicate, reminder, for_your_records, reissued, pro_forma, other).""" + SUMMARY_RULE
 
 LINE = {"type": "object", "properties": {
     "awb": STR, "house": STR, "label": STR, "lane": STR, "pickup_date": STR, "quantity": STR,
@@ -74,6 +74,7 @@ TOOL = tool("record_billing_document", "Record what an invoice, statement or cre
         "credit_type": {"enum": ["rebate", "improvement", "margin", "correction", "other"]},
         "credit_type_as_printed": STR, "period": STR, "basis": STR, "invoices": STR_LIST, "quote": QUOTE}},
     "automation_instructions": AUTOMATION_FIELD,
+    "summary": SUMMARY_FIELD,
 }, ["doc_kind", "lines", "automation_instructions"])
 
 _CREDIT_CLASS = {"rebate": "rebate", "improvement": "promised_credit", "margin": "margin_step_down"}
@@ -93,8 +94,8 @@ def line_math(qty: Decimal | None, unit: str | None, rate: Decimal | None, pct: 
 def _prompt(ctx: DocContext) -> str:
     parts = []
     if ctx.parent_email:
-        parts.append(f"(Context: attached to an email from {ctx.parent_email.get('from_addr')} with subject "
-                     f"{ctx.parent_email.get('subject')!r}.)")
+        parts.append(f"(Note from the audit system, not part of the document: it came attached to an email from "
+                     f"{ctx.parent_email.get('from_addr')} with subject {ctx.parent_email.get('subject')!r}.)")
     parts.append(ctx.document_block())
     return "\n".join(parts)
 
@@ -239,6 +240,6 @@ class BillingReader:
                 data, facts, problems = again, facts2, problems2
         out.doc_type = data.get("doc_kind")
         out.facts = facts
-        out.warnings = problems
-        out.status = "partial" if problems else "ok"
+        out.warnings = out.warnings + problems
+        out.status = "partial" if out.warnings else "ok"
         return out

@@ -7,6 +7,9 @@ not as the contract says. Late-fee lines for the same invoice are matched to the
 a line bills above its months' fees is not owed. If the invoice isn't paid yet, lateness runs to the date the fee
 was billed.
 
+The invoice a fee is charged on is the line's refers_to_invoice; when the reader left it out, an invoice number we hold
+that the line's own words name ("Late fee on TX-US-2035-0202 ...") is used, if exactly one is named.
+
 Risk: an unpaid invoice whose due date is 1 to 14 days after as_of. Amount: one month's fee on what's still open,
 less what we're disputing on that invoice, in the invoice's currency, converted once.
 """
@@ -18,6 +21,7 @@ from decimal import Decimal
 
 from ..knowledge.terms import Decided, Missing, Source, Terms
 from ..knowledge.view import dec, day
+from ..links import find_known
 from ..money import pct_of
 from .common import (ZERO, Claims, Verdict, amount_of, contract_of, fee_schedule, invoice_date, ledger, lines_of,
                      missing_doc, months_late, to_usd)
@@ -57,6 +61,17 @@ def _late_rule(terms: Terms, contract: str | None):
 
 
 # ---- not owed --------------------------------------------------------------------------------------------------
+def named_invoice(view, line, carrier: str | None) -> str | None:
+    """The invoice a fee line charges for, from its own words, when the reader didn't fill refers_to_invoice: one
+    invoice number we hold (an invoice or a register row), other than the invoice carrying the line."""
+    known = {f.invoice_id for f in view.kind("invoice") if f.invoice_id}
+    known |= {f.invoice_id for f in view.kind("ledger_entry") if f.invoice_id}
+    known.discard(carrier)
+    p = line.payload
+    found = find_known(" ".join(str(x) for x in (p.get("reference"), p.get("label"), line.quote) if x), known)
+    return found[0] if len(found) == 1 else None
+
+
 def not_owed(terms: Terms, claims: Claims, headers: dict) -> list[Verdict]:
     view = terms.view
     by_base: dict[str, list] = defaultdict(list)
@@ -64,7 +79,7 @@ def not_owed(terms: Terms, claims: Claims, headers: dict) -> list[Verdict]:
         contract = contract_of(terms, h)
         for f in lines_of(view, h):
             if terms.charge_code(contract, f.payload.get("label")) == "LATE" and not claims.taken(f.id):
-                base = f.payload.get("refers_to_invoice")
+                base = f.payload.get("refers_to_invoice") or named_invoice(view, f, h.invoice_id)
                 if base:
                     by_base[base].append((h, f, contract))
     per_invoice: dict[str, list] = defaultdict(list)

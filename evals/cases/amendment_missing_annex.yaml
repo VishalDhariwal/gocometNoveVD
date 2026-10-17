@@ -1,0 +1,10 @@
+name: an amendment cites an annex as attached that we don't hold
+mailbox: evals/mailboxes/amendment_missing_annex
+as_of: "2032-08-31"
+mode: supervised
+expect:
+  key: {invoice_id: TX-US-2032-5394, class: overcharge}
+  verdict: cannot_determine
+  missing_doc: "Annex A rev 2"
+  action: draft:request_document
+why: a signed amendment replaces lane USE2-INE2's rates with "Annex A rev 2 (attached)" from 2031-12-20, the shipment was picked up 2031-12-25, and no such annex is in the mailbox; practice run 3 missed the reference and claimed a false overcharge on the old rates

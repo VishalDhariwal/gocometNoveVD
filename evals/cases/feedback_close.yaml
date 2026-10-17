@@ -1,0 +1,9 @@
+name: a closed dispute stops being raised
+mailbox: evals/mailboxes/overcharge_feedback
+as_of: "2032-08-31"
+mode: supervised
+feedback: {batch_01: evals/feedback/close_5394.json}
+expect:
+  key: {invoice_id: TX-US-2032-5394, class: overcharge}
+  verdict: no_finding
+why: close with dispute_closed means stop raising that key (GLOSSARY feedback.json)
