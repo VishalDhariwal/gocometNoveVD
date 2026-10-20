@@ -14,7 +14,7 @@ Amount accuracy (recovered - 2 x wrong)         20.00    20  recovered $14,140.0
 Adaptation to new documents                     15.00    15  11 of 11 changes right
 Learning from feedback                          10.00    10  3 of 3 checks right
 Conflict and abstention                         10.00    10  2.00 of 2 points x precision 1.00
-Gating (both modes) + confidence                14.69    15  escalated 4%; supervised 24/24, autonomous 24/24; AUROC not measurable (no wrong or no right item), Brier 0.0156
+Gating (both modes) + confidence                14.66    15  escalated 4%; supervised 24/24, autonomous 24/24; AUROC not measurable (no wrong or no right item), Brier 0.017
 Clean controls                                   5.00     5  16 of 16 left alone x recall scale 1.00
 
 CLASS (all reports pooled)     hits  false  missed     F1      at stake     recovered       wrong
