@@ -140,6 +140,11 @@ def build(ctx: DocContext, data: dict) -> tuple[list[FactOut], list[str]]:
         if math_ok is False:
             math_issues.append(i)
         awb_raw, house_raw = v.text_or_none(ln.get("awb")), v.text_or_none(ln.get("house"))
+        if awb_raw and not house_raw:      # a house waybill printed as <master>-H<n> on the line: that's the shipment
+            q = str(ln.get("quote") or "")
+            at = q.upper().find(awb_raw.upper() + "-H")
+            token = q[at:].split()[0].rstrip(".,;)") if at >= 0 else ""
+            house_raw = token if token[len(awb_raw) + 2:].isdigit() else None
         page, quote, ver = ground(ctx, ln.get("quote"), [ln.get("amount"), awb_raw, house_raw, rate_raw])
         if ver == "unverified":
             problems.append(f"line {i} ({ln.get('label')} {ln.get('amount')}) isn't on the page as quoted")

@@ -99,6 +99,12 @@ def _days(x) -> int | None:
 
 def _bool(x) -> bool | None:
     return x if isinstance(x, bool) else None
+
+
+# The page's own signature blocks and effective date, for when the reading leaves them out.
+SIGNED = re.compile(r"Signed for and on behalf of (.+?) \(the (Shipper|Carrier)\)\s*\n(?:Signature:[^\n]*\n)?\s*"
+                    r"Name:\s*([^\n]+)\n\s*Title:\s*([^\n]+)\n\s*Date:\s*([^\n]+)", re.I)
+EFFECTIVE = re.compile(r"Effective from (\d{4}-\d{2}-\d{2})")
 RULES = {"type": "object", "properties": {
     "notice_vs_amendment": {"type": "object", "properties": {
         "ranking": {"enum": RANKINGS}, "clause": STR, "quote": QUOTE}, "required": ["ranking"]},
@@ -349,6 +355,13 @@ def build(ctx: DocContext, terms: dict, tables: dict) -> tuple[list[FactOut], li
     effective = v.iso(v.parse_date(inst.get("effective_from")) or v.parse_date((terms.get("term") or {}).get("effective_from")))
     reference = v.text_or_none(inst.get("reference")) or contract
     signatories = plain(inst.get("signatories") or [])
+    page_text = "\n".join(t for _, t in ctx.page_texts)
+    if not any(s.get("name") for s in signatories):     # the reading missed the signature blocks printed on the page
+        signatories = [{"party": m.group(2).lower(), "name": m.group(3).strip(), "title": m.group(4).strip(),
+                        "date": m.group(5).strip()} for m in SIGNED.finditer(page_text)]
+    if not effective:                                    # ... or the "Effective from" line
+        m = EFFECTIVE.search(page_text)
+        effective = v.iso(v.parse_date(m.group(1))) if m else None
     signed_parties = {norm.code(s.get("party") or s.get("name") or "") for s in signatories if s.get("name")}
 
     def fact(kind, payload, quote, check, keys=None, **extra):
@@ -418,6 +431,10 @@ def build(ctx: DocContext, terms: dict, tables: dict) -> tuple[list[FactOut], li
     if isinstance(ch.get("carrier_error_exempt"), bool):
         rule("customs_holds", {"carrier_error_exempt": ch["carrier_error_exempt"]}, ch, [])
     lf = rules.get("late_fee") or {}
+    if v.parse_pct(lf.get("rate_pct")) is None:          # the reading put the clause in the general terms list instead
+        t = next((t for t in terms.get("terms") or [] if t.get("name") == "late_fee" and isinstance(t.get("value"), dict)),
+                 None)
+        lf = {**t["value"], "quote": t.get("quote"), "clause": t.get("clause")} if t else {}
     if v.parse_pct(lf.get("rate_pct")) is not None:
         rule("late_fee", {"rate_pct": v.parse_pct(lf["rate_pct"]), "grace_days": _days(lf.get("grace_days")),
                           "compounding": _bool(lf.get("compounding"))}, lf, [lf["rate_pct"]])

@@ -58,29 +58,43 @@
    ]
   },
   {
-   "id": "duplicate:CDU-3051313",
-   "class": "duplicate",
-   "invoice_id": "CDU-3051313",
+   "id": "late_fee_not_owed:CDU-3051277",
+   "class": "late_fee_not_owed",
+   "invoice_id": "CDU-3051277",
    "verdict": "finding",
-   "amount_usd": "52.70",
+   "amount_usd": "21.58",
    "amount_range": null,
    "deadline": null,
    "action": "draft:dispute",
-   "confidence": 0.88,
+   "confidence": 0.83,
    "evidence": [
     {
-     "doc": "batch_02/0007.eml#CDU-3051313.pdf",
+     "doc": "batch_01/0015.eml#CDU-3051277.pdf",
      "page": 1,
-     "quote": "USE2-INS2 CA96669138-H2 Delivery fee (MAWB CA96669138) 1 shpt 52.70 52.70 26/09/2030",
+     "quote": "- Late fee on CDU-3051262: USD 1448.48 overdue, month 1 @ 1.49% 1 month 1.49% 21.58 -",
      "role": "billed line",
-     "detail": "billed again"
+     "detail": "the late fee billed"
     },
     {
-     "doc": "batch_02/0006.eml#CDU-3051304.pdf",
+     "doc": "batch_01/0011.eml",
      "page": 1,
-     "quote": "USE2-INS2 CA96669138-H1 Delivery fee (MAWB CA96669138) 1 shpt 52.70 52.70 26/09/2030",
-     "role": "billed line",
-     "detail": "first billed on CDU-3051304"
+     "quote": "Invoice CDU-3051262 now falls due on 2030-07-25 (extended under clause 10.5).",
+     "role": "due date extension",
+     "detail": "due date extended by the payment-terms contact"
+    },
+    {
+     "doc": "batch_02/0023.eml#ap-register-2031-02-28.xlsx",
+     "page": 1,
+     "quote": "CDU-3051262 | 2030-06-15 | due 2030-07-15 | USD 1448.48 | paid | 2030-07-23",
+     "role": "payment register",
+     "detail": "the register"
+    },
+    {
+     "doc": "batch_01/0003.eml#MSA-CDA-US-EXP-E91.pdf",
+     "page": 4,
+     "quote": "10.2 Late fee. Undisputed amounts outstanding for more than 0 days past the due date incur a late fee of 1.49% per month or part thereof.",
+     "role": "contract clause",
+     "detail": "signed msa CDA-US-EXP-E91"
     }
    ],
    "missing_doc": null,
@@ -93,9 +107,8 @@
     "email": "greta.quigley@caldrith.example"
    },
    "explanation": [
-    "Invoice CDU-3051313 bills USD 52.70 that was already billed (the same charge was billed on an earlier invoice).",
-    "Delivery fee (MAWB CA96669138) (DLV) on CA96669138: 52.70, already billed on CDU-3051304 as 'Delivery fee (MAWB CA96669138)' (52.70), same waybill, charge code and amount",
-    "Billed twice: 52.70 = 52.70"
+    "Invoice CDU-3051277 bills USD 21.58 of late fees that weren't owed.",
+    "CDU-3051262: due 2030-07-25, paid 2030-07-23, -2 days late, grace 0, 0 fee month(s) []; this line bills 21.58, owed 0"
    ]
   },
   {
@@ -179,7 +192,7 @@
     {
      "doc": "batch_01/0010.eml#CDU-3051266.pdf",
      "page": 1,
-     "quote": "USC1-INW1 CA53442004 Air freight 547 kg 7.16 3,916.52",
+     "quote": "USC1-INW1 CA53442004 Air freight 547 kg 7.16 3,916.52 19/06/2030",
      "role": "billed line",
      "detail": "the billed line"
     },
@@ -200,7 +213,7 @@
     {
      "doc": "batch_01/0010.eml#CDU-3051266.pdf",
      "page": 1,
-     "quote": "USC1-INW1 CA53442004 Fuel surcharge 3,916.52 20.74% 812.29",
+     "quote": "USC1-INW1 CA53442004 Fuel surcharge 3,916.52 20.74% 812.29 19/06/2030",
      "role": "billed line",
      "detail": "the billed line"
     },
@@ -235,13 +248,20 @@
    "id": "overcharge:CDU-3051286",
    "class": "overcharge",
    "invoice_id": "CDU-3051286",
-   "verdict": "finding",
-   "amount_usd": "151.64",
+   "verdict": "cannot_determine",
+   "amount_usd": null,
    "amount_range": null,
    "deadline": null,
-   "action": "draft:dispute",
-   "confidence": 0.87,
+   "action": "draft:request_document",
+   "confidence": 0.82,
    "evidence": [
+    {
+     "doc": "batch_01/0004.eml#CDA-US-EXP-E91-AMD-1.pdf",
+     "page": 1,
+     "quote": "The Annex A rates for lane(s) USW2-USW1 are deleted and replaced as follows: Annex A rev 2 (attached) applies from 2030-09-07 to lane(s) USW2-USW1.",
+     "role": "where the missing document is cited",
+     "detail": "signed amendment CDA-US-EXP-E91/AMD-1"
+    },
     {
      "doc": "batch_02/0003.eml#CDU-3051286.pdf",
      "page": 1,
@@ -250,51 +270,31 @@
      "detail": "the billed line"
     },
     {
-     "doc": "batch_01/0003.eml#MSA-CDA-US-EXP-E91.pdf",
-     "page": 8,
-     "quote": "USW2-USW1 100-299.5 kg 4.65 4.95",
-     "role": "contract rate (Annex A)",
-     "detail": "signed msa CDA-US-EXP-E91"
-    },
-    {
-     "doc": "batch_02/0022.eml#tracking-2030-09-01.xlsx",
-     "page": 1,
-     "quote": "CA66924094 | PICKED_UP | 2030-09-15 | USW2 | -",
-     "role": "pickup date (tracking)",
-     "detail": "pickup date from the tracking export"
-    },
-    {
      "doc": "batch_02/0003.eml#CDU-3051286.pdf",
      "page": 1,
      "quote": "USW2-USW1 CA66924094 Fuel surcharge 1,308.10 19.40% 253.77 15/09/2030",
      "role": "billed line",
      "detail": "the billed line"
-    },
-    {
-     "doc": "batch_01/0003.eml#MSA-CDA-US-EXP-E91.pdf",
-     "page": 9,
-     "quote": "2030-09 19.40%",
-     "role": "fuel surcharge (Annex C)",
-     "detail": "signed msa CDA-US-EXP-E91"
     }
    ],
-   "missing_doc": null,
+   "missing_doc": {
+    "name": "Annex A rev 2",
+    "holder": {
+     "party": "CDA-US",
+     "person": "Joaquin Rathbone",
+     "role": "Pricing Manager"
+    }
+   },
    "supersedes": [],
    "learned_at": null,
    "recipient": {
-    "person": "Greta Quigley",
-    "role": "Billing Disputes Lead",
+    "person": "Joaquin Rathbone",
+    "role": "Pricing Manager",
     "party": "CDA-US",
-    "email": "greta.quigley@caldrith.example"
+    "email": "joaquin.rathbone@caldrith.example"
    },
    "explanation": [
-    "Invoice CDU-3051286 was billed USD 151.64 above the contract price.",
-    "Air freight (FRT) on CA66924094: billed 1308.10, should be 1181.10. MSA CDA-US-EXP-E91 Annex A: 4.65 per kg for USW2-USW1, band 100-299.5 kg, on the pickup date 2030-09-15",
-    "4.65 x 254 kg = 1181.10",
-    "Fuel surcharge (FUEL) on CA66924094: billed 253.77, should be 229.13. 19.40% fuel for 2030-09 on the correct freight",
-    "19.40% x 1181.10 = 229.13",
-    "Pickup date of CA66924094: 2030-09-15, from the tracking export",
-    "Total billed above the contract price: 151.64 USD"
+    "CDU-3051286: can't be checked without 'Annex A rev 2', which we don't hold (CDA-US-EXP-E91/AMD-1 says Annex A rev 2 governs USW2-USW1 from 2030-09-07, and we don't hold it). Ask Joaquin Rathbone, Pricing Manager, CDA-US for it."
    ]
   },
   {
@@ -352,6 +352,91 @@
     "Pickup date of CA24035181: 2030-09-20, from the tracking export",
     "Total billed above the contract price: 155.65 USD"
    ]
+  },
+  {
+   "id": "overcharge:CDU-3051302",
+   "class": "overcharge",
+   "invoice_id": "CDU-3051302",
+   "verdict": "conflict",
+   "amount_usd": null,
+   "amount_range": [
+    "0.00",
+    "61.93"
+   ],
+   "deadline": null,
+   "action": "escalate",
+   "confidence": 0.83,
+   "evidence": [
+    {
+     "doc": "batch_02/0005.eml#CDU-3051302.pdf",
+     "page": 1,
+     "quote": "USE2-USC3 CA60423720 Air freight 133 kg 4.38 582.54 21/09/2030",
+     "role": "billed line",
+     "detail": "the billed line"
+    },
+    {
+     "doc": "batch_01/0004.eml#CDA-US-EXP-E91-AMD-1.pdf",
+     "page": 1,
+     "quote": "USE2-USC3 100-299.5 kg 3.99 USD",
+     "role": "amendment rate",
+     "detail": "signed amendment CDA-US-EXP-E91/AMD-1"
+    },
+    {
+     "doc": "batch_02/0001.eml",
+     "page": 1,
+     "quote": "USE2-USC3 100-299.5 kg = USD 4.38",
+     "role": "rate notice",
+     "detail": "Joaquin Rathbone is on Schedule 1 for rates"
+    },
+    {
+     "doc": "batch_01/0003.eml#MSA-CDA-US-EXP-E91.pdf",
+     "page": 5,
+     "quote": "14.2 Correspondence. This clause does not rank correspondence against amendments (see clause 13.3).",
+     "role": "contract clause",
+     "detail": "signed msa CDA-US-EXP-E91"
+    },
+    {
+     "doc": "batch_02/0022.eml#tracking-2030-09-01.xlsx",
+     "page": 1,
+     "quote": "CA60423720 | PICKED_UP | 2030-09-21 | USE2 | -",
+     "role": "pickup date (tracking)",
+     "detail": "pickup date from the tracking export"
+    },
+    {
+     "doc": "batch_02/0005.eml#CDU-3051302.pdf",
+     "page": 1,
+     "quote": "USE2-USC3 CA60423720 Fuel surcharge 582.54 19.40% 113.01 21/09/2030",
+     "role": "billed line",
+     "detail": "the billed line"
+    },
+    {
+     "doc": "batch_01/0003.eml#MSA-CDA-US-EXP-E91.pdf",
+     "page": 9,
+     "quote": "2030-09 19.40%",
+     "role": "fuel surcharge (Annex C)",
+     "detail": "signed msa CDA-US-EXP-E91"
+    }
+   ],
+   "missing_doc": null,
+   "supersedes": [],
+   "learned_at": null,
+   "explanation": [
+    "Invoice CDU-3051302: two sources with authority disagree, and the contract doesn't rank them, so the overcharge is between USD 0.00 and USD 61.93 depending on which applies (the contract doesn't rank a rate notice against an amendment). A person has to decide.",
+    "Air freight (FRT) on CA60423720: billed 582.54, should be 530.67 under amendment CDA-US-EXP-E91/AMD-1 or 582.54 under rate notice CDA-US-EXP-E91/RN-USE2-USC3-2030-09-15 (batch_02/0001.eml). the contract doesn't rank a rate notice against an amendment",
+    "amendment CDA-US-EXP-E91/AMD-1: 3.99 x 133 kg = 530.67",
+    "rate notice CDA-US-EXP-E91/RN-USE2-USC3-2030-09-15 (batch_02/0001.eml): 4.38 x 133 kg = 582.54",
+    "Fuel surcharge (FUEL) on CA60423720: billed 113.01, should be 102.95 under amendment CDA-US-EXP-E91/AMD-1 or 113.01 under rate notice CDA-US-EXP-E91/RN-USE2-USC3-2030-09-15 (batch_02/0001.eml). rides on freight in conflict",
+    "amendment CDA-US-EXP-E91/AMD-1: 19.40% x 530.67 = 102.95",
+    "rate notice CDA-US-EXP-E91/RN-USE2-USC3-2030-09-15 (batch_02/0001.eml): 19.40% x 582.54 = 113.01",
+    "Pickup date of CA60423720: 2030-09-21, from the tracking export",
+    "Total billed above the contract price: 0 to 61.93 USD",
+    "For a person (G2 conflict): two authorised sources disagree (the contract doesn't rank a rate notice against an amendment); a person decides which applies."
+   ],
+   "human": {
+    "rule": "G2 conflict",
+    "reason": "two authorised sources disagree (the contract doesn't rank a rate notice against an amendment); a person decides which applies",
+    "priority": "high"
+   }
   },
   {
    "id": "waived_but_billed:CDU-3051259",
@@ -551,6 +636,41 @@
     ]
    }
   ],
-  "late_fee_risk": []
+  "late_fee_risk": [
+   {
+    "id": "late_fee_risk:CDU-3151571",
+    "class": "late_fee_risk",
+    "invoice_id": "CDU-3151571",
+    "verdict": "finding",
+    "amount_usd": "10.29",
+    "amount_range": null,
+    "deadline": "2031-03-10",
+    "action": "internal:payment_reminder",
+    "confidence": 0.9,
+    "evidence": [
+     {
+      "doc": "batch_02/0023.eml#ap-register-2031-02-28.xlsx",
+      "page": 1,
+      "quote": "CDU-3151571 | 2031-02-08 | due 2031-03-10 | USD 690.34 | open | -",
+      "role": "payment register",
+      "detail": "due date in the register"
+     },
+     {
+      "doc": "batch_01/0003.eml#MSA-CDA-US-EXP-E91.pdf",
+      "page": 4,
+      "quote": "10.2 Late fee. Undisputed amounts outstanding for more than 0 days past the due date incur a late fee of 1.49% per month or part thereof.",
+      "role": "contract clause",
+      "detail": "signed msa CDA-US-EXP-E91"
+     }
+    ],
+    "missing_doc": null,
+    "supersedes": [],
+    "learned_at": null,
+    "explanation": [
+     "Invoice CDU-3151571 is unpaid and due on 2031-03-10; paying late would cost about USD 10.29 a month in late fees.",
+     "open 690.34, disputing 0, one month at 1.49% = 10.29; due 2031-03-10, 10 days after 2031-02-28"
+    ]
+   }
+  ]
  }
 }

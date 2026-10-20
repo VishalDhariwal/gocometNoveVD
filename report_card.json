@@ -12,11 +12,11 @@
    "batch_02"
   ]
  },
- "score": 99.69,
- "score_uncapped": 99.69,
+ "score": 99.66,
+ "score_uncapped": 99.66,
  "excluded_keys": 0,
  "excluded_answers": 0,
- "points": 99.688,
+ "points": 99.66,
  "points_max": 100,
  "capped_by_hard_gate": false,
  "components": [
@@ -94,7 +94,7 @@
   {
    "component": "gating",
    "label": "Gating (both modes) + confidence",
-   "points": 14.688,
+   "points": 14.66,
    "max": 15,
    "applicable": true,
    "detail": {
@@ -119,10 +119,10 @@
     "escalation_rate": 0.0417,
     "unsafe_autonomous_cases": 0,
     "auroc": null,
-    "brier": 0.0156,
+    "brier": 0.017,
     "items_scored": 24,
     "actions_points": 10.0,
-    "confidence_points": 4.688
+    "confidence_points": 4.66
    }
   },
   {
@@ -448,8 +448,8 @@
       {
        "step": "ingest",
        "rc": 0,
-       "stderr": "INFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO nova: read batch_01: {'classified': 33, 'read with warnings': 6, 'facts': 924, 'read': 76}\n",
-       "secs": 160.3
+       "stderr": "INFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO nova: read batch_01: {'classified': 33, 'read with warnings': 6, 'facts': 931, 'read': 76}\n",
+       "secs": 135.8
       },
       {
        "step": "report",
@@ -474,14 +474,14 @@
       {
        "step": "ingest",
        "rc": 0,
-       "stderr": "200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO nova: read batch_02: {'classified': 38, 'read': 80, 'facts': 474, 'read with warnings': 1}\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO nova: charge labels batch_02: {'labels': 4, 'mapped': 4, 'no code': 0}\n",
-       "secs": 72.4
+       "stderr": "200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO nova: read batch_02: {'classified': 38, 'read': 80, 'facts': 468, 'read with warnings': 1}\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO nova: charge labels batch_02: {'labels': 4, 'mapped': 4, 'no code': 0}\n",
+       "secs": 59.1
       },
       {
        "step": "report",
        "rc": 0,
-       "stderr": "HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO nova.review.run: review overcharge|TXI/35-36/0024 (unpriced_lines): rejected - cannot_determine needs a checked quote of the document that cites the missing one\nINFO nova.review.run: review overcharge|TX-US-2035-0249 (unpriced_lines): confirmed - the reviewer finds nothing to report\nINFO nova.review.run: case reviewer: 2 case(s), 1 confirmed, 1 rejected\n",
-       "secs": 18.3
+       "stderr": "INFO nova.decide.learn: overcharge|TX-US-2035-0210 dropped: feedback fb-01-p1 (close)\n",
+       "secs": 0.5
       }
      ],
      "items": 17
@@ -498,14 +498,14 @@
       {
        "step": "ingest",
        "rc": 0,
-       "stderr": "INFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO nova: read batch_01: {'classified': 33, 'read with warnings': 7, 'facts': 916, 'read': 75}\n",
-       "secs": 366.9
+       "stderr": "INFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO nova: read batch_01: {'classified': 33, 'read with warnings': 6, 'facts': 922, 'read': 76}\n",
+       "secs": 139.0
       },
       {
        "step": "report",
        "rc": 0,
-       "stderr": "",
-       "secs": 0.5
+       "stderr": "px2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO nova.review.run: review open|TX-US-2035-0202|unread_email (unread_email): no_change - the reviewer finds nothing to report\nINFO nova.review.run: case reviewer: 1 case(s), 1 no_change\n",
+       "secs": 12.3
       },
       {
        "step": "feedback",
@@ -524,14 +524,14 @@
       {
        "step": "ingest",
        "rc": 0,
-       "stderr": "200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO nova: read batch_02: {'classified': 38, 'read': 80, 'facts': 472, 'read with warnings': 1}\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO nova: charge labels batch_02: {'labels': 4, 'mapped': 4, 'no code': 0}\n",
-       "secs": 73.1
+       "stderr": "200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO nova: read batch_02: {'classified': 38, 'read': 80, 'facts': 470, 'read with warnings': 1}\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO nova: charge labels batch_02: {'labels': 4, 'mapped': 4, 'no code': 0}\n",
+       "secs": 56.6
       },
       {
        "step": "report",
        "rc": 0,
-       "stderr": "O httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO nova.review.run: review overcharge|TX-US-2035-0249 (unpriced_lines): confirmed - the reviewer finds nothing to report\nINFO nova.review.run: case reviewer: 1 case(s), 1 confirmed\n",
-       "secs": 16.2
+       "stderr": "px2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO httpx2: HTTP Request: POST http://127.0.0.1:8765/v1/messages \"HTTP/1.0 200 OK\"\nINFO nova.review.run: review open|TX-US-2035-0202|unread_email (unread_email): no_change - the reviewer finds nothing to report\nINFO nova.review.run: case reviewer: 1 case(s), 1 no_change\n",
+       "secs": 11.1
       }
      ],
      "items": 17

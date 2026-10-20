@@ -388,6 +388,9 @@ class Terms:
         for f in self.view.kind("charge_alias") if contract is None else self.view.get("charge_alias", contract_id=contract):
             if key in (f.payload.get("label_keys") or []) or key == norm.label(f.payload.get("code") or ""):
                 return norm.code(f.payload.get("code"))
+        on = re.match(r"(.+?)\s+on\s+[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+\b", label)  # "Late fee on CDU-3051262: USD 1448.48 ..."
+        if on and (code := self.charge_code(contract, on.group(1))):
+            return code
         link = self.view.links.get("label_code", {}).get(f"{contract}|{key}")
         if link is not None and link["object"] and float(link["confidence"]) >= 0.6:
             return norm.code(link["object"])
